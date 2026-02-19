@@ -1,0 +1,40 @@
+---
+daemon:
+  port: 7377
+  heartbeat_interval: 60
+
+llm:
+  # Any model supported by your configured providers
+  # Examples: claude-sonnet-4-20250514, gpt-4o, gemini-2.5-pro, llama3:8b
+  model: claude-sonnet-4-20250514
+
+  # Add API keys for any providers you want to use.
+  # Only configure the ones you need — Kodo won't complain about the rest.
+  providers:
+    anthropic:
+      api_key_env: ANTHROPIC_API_KEY
+    # openai:
+    #   api_key_env: OPENAI_API_KEY
+    # gemini:
+    #   api_key_env: GEMINI_API_KEY
+    # deepseek:
+    #   api_key_env: DEEPSEEK_API_KEY
+    # mistral:
+    #   api_key_env: MISTRAL_API_KEY
+    # openrouter:
+    #   api_key_env: OPENROUTER_API_KEY
+    # ollama:
+    #   api_base: http://localhost:11434  # no API key needed
+
+channels:
+  telegram:
+    enabled: false
+    bot_token_env: TELEGRAM_BOT_TOKEN
+
+memory:
+  encryption: false
+  store: file
+
+logging:
+  level: info
+  audit: true

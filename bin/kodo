@@ -1,0 +1,160 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require_relative "../lib/kodo"
+
+module Kodo
+  class CLI
+    COMMANDS = {
+      "start"   => "Start the Kodo daemon",
+      "chat"    => "Chat with Kodo directly in the terminal",
+      "status"  => "Show daemon status",
+      "version" => "Show version",
+      "init"    => "Create default config and prompt files in ~/.kodo/",
+      "help"    => "Show this help"
+    }.freeze
+
+    def run(args = ARGV)
+      command = args.first || "help"
+
+      case command
+      when "start"   then start(args)
+      when "chat"    then chat
+      when "init"    then init
+      when "version" then puts "kodo v#{VERSION}"
+      when "status"  then status
+      else help
+      end
+    end
+
+    private
+
+    def start(args)
+      interval = nil
+      args.each do |arg|
+        if arg.start_with?("--heartbeat-interval=")
+          interval = arg.split("=", 2).last.to_i
+        end
+      end
+      if (idx = args.index("--heartbeat-interval")) && !args[idx + 1]&.start_with?("--")
+        interval = args[idx + 1]&.to_i
+      end
+
+      daemon = Daemon.new(heartbeat_interval: interval)
+      daemon.start!
+    end
+
+    def chat
+      Config.ensure_home_dir!
+      assembler = PromptAssembler.new
+      assembler.ensure_default_files!
+      LLM.configure!(Kodo.config)
+
+      puts "🥁 Kodo v#{VERSION} — direct chat mode"
+      puts "   Model: #{Kodo.config.llm_model}"
+      puts "   Type your message and press Enter. Ctrl+C to quit.\n\n"
+
+      memory = Memory::Store.new
+      audit = Memory::Audit.new
+      router = Router.new(memory: memory, audit: audit, prompt_assembler: assembler)
+      console = Channels::Console.new
+      console.connect!
+
+      loop do
+        print "\e[33mYou:\e[0m "
+        input = $stdin.gets&.strip
+        break if input.nil? || input.empty?
+
+        message = Message.new(
+          channel_id: "console",
+          sender: :user,
+          content: input,
+          metadata: { chat_id: "console" }
+        )
+
+        response = router.route(message, channel: console)
+        console.send_message(response)
+      end
+    rescue Interrupt
+      puts "\n\n🥁 Goodbye."
+    end
+
+    def init
+      Config.ensure_home_dir!
+      PromptAssembler.new.ensure_default_files!
+
+      puts "✅ Kodo home directory: #{Kodo.home_dir}"
+      puts ""
+      puts "   Created files:"
+      puts "   📋 config.yml     — LLM provider and channel settings"
+      puts "   🎭 persona.md     — personality and tone (make Kodo yours)"
+      puts "   👤 user.md        — tell Kodo about yourself"
+      puts "   💓 pulse.md       — what to notice during idle beats"
+      puts "   🌱 origin.md      — first-run onboarding conversation"
+      puts ""
+      puts "   Quick start:"
+      puts "   1. Set an LLM API key (e.g. ANTHROPIC_API_KEY, OPENAI_API_KEY)"
+      puts "   2. Set TELEGRAM_BOT_TOKEN (get one from @BotFather on Telegram)"
+      puts "   3. Enable Telegram in ~/.kodo/config.yml"
+      puts "   4. Edit ~/.kodo/persona.md to customize Kodo's personality"
+      puts "   5. Run: kodo start"
+      puts ""
+      puts "   Supported LLM providers:"
+      puts "   Anthropic, OpenAI, Gemini, DeepSeek, Mistral, Ollama,"
+      puts "   OpenRouter, Perplexity, xAI, and any OpenAI-compatible API"
+    end
+
+    def status
+      puts "🥁 Kodo v#{VERSION}"
+      puts ""
+      puts "   Home:   #{Kodo.home_dir}"
+      puts "   Config: #{File.exist?(Config.config_path) ? "✅" : "❌"} #{Config.config_path}"
+      puts ""
+
+      # Prompt files
+      puts "   Prompt files:"
+      %w[persona.md user.md pulse.md origin.md].each do |f|
+        path = File.join(Kodo.home_dir, f)
+        status = File.exist?(path) ? "✅" : "  "
+        puts "   #{status} #{f}"
+      end
+      puts ""
+
+      # Provider keys
+      puts "   LLM providers:"
+      {
+        "ANTHROPIC_API_KEY"  => "Anthropic",
+        "OPENAI_API_KEY"     => "OpenAI",
+        "GEMINI_API_KEY"     => "Gemini",
+        "OLLAMA_API_BASE"    => "Ollama"
+      }.each do |env, name|
+        s = ENV[env] ? "✅ set" : "  not set"
+        puts "   #{s.start_with?("✅") ? "✅" : "  "} #{name.ljust(12)} (#{env})"
+      end
+      puts ""
+
+      puts "   Telegram: #{ENV["TELEGRAM_BOT_TOKEN"] ? "✅ set" : "❌ TELEGRAM_BOT_TOKEN missing"}"
+    end
+
+    def help
+      puts "🥁 Kodo v#{VERSION} — your personal AI agent"
+      puts ""
+      puts "Usage: kodo <command> [options]"
+      puts ""
+      COMMANDS.each do |cmd, desc|
+        puts "  %-12s %s" % [cmd, desc]
+      end
+      puts ""
+      puts "Options:"
+      puts "  --heartbeat-interval=N   Set heartbeat interval in seconds (default: 60)"
+      puts ""
+      puts "Prompt files in ~/.kodo/:"
+      puts "  persona.md    Your agent's personality and tone"
+      puts "  user.md       Tell Kodo about yourself"
+      puts "  pulse.md      What to notice during idle beats"
+      puts "  origin.md     First-run onboarding conversation"
+    end
+  end
+end
+
+Kodo::CLI.new.run
