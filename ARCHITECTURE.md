@@ -240,11 +240,12 @@ logging:
 - [ ] CLI direct chat (`kodo chat`)
 
 ### Phase 2 — Security Layer
-- [ ] Rust `kodo-gate` permission broker (FFI from Ruby)
-- [ ] Capability-based permission model
-- [ ] Encrypted memory at rest
-- [ ] Skill engine with process isolation
+- [ ] kodo-gate: capability-based permission model (pure Ruby)
+- [ ] LLM-powered skill auditing at install time
+- [ ] Process-level skill sandboxing (fork + resource limits)
 - [ ] Skill signing and verification
+- [ ] Encrypted memory at rest
+- [ ] Capability manifest generation and enforcement
 
 ### Phase 3 — Desktop Experience
 - [ ] Tauri GUI with setup wizard

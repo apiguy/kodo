@@ -119,17 +119,28 @@ target but has serious friction for open-source distribution:
 - WhatsApp can be added later as an optional channel adapter (via Node.js
   sidecar) for users who want it
 
-### Ruby-Rust Boundary (Phase 2)
+### Why Not Rust FFI for Security?
 
-Evaluated two options:
-- **Option A (chosen):** Ruby calls out to Rust via FFI/local sidecar for
-  privileged operations. Rust is the gatekeeper, Ruby is the brain.
-- **Option B (rejected):** Rust hosts Ruby via rutie/magnus. Would give
-  tighter control but limits us to the gems that work in embedded Ruby.
+Originally planned a Rust FFI layer (`kodo-gate`) as a security boundary.
+Decided against it for several reasons:
 
-Option A preserves the full CRuby + gem ecosystem while getting Rust's
-security guarantees where they matter most (permission enforcement, crypto,
-input sanitization).
+1. **The FFI boundary doesn't prevent bypass.** Ruby has full OS access
+   (`system()`, `File.open`, `Net::HTTP`). A malicious skill in the same
+   process can skip the gate entirely. The gate only works if the code
+   *can't* do anything without it — which requires process-level sandboxing
+   regardless.
+2. **Contributor friction.** Requiring a Rust toolchain to build a Ruby gem
+   contradicts the "lightweight & portable" goal.
+3. **The hard problems are Ruby-side.** Capability token design, permission
+   scoping, user approval flows, manifest generation — these are all
+   application-level concerns, not systems programming.
+4. **Process isolation solves enforcement better.** OS-level sandboxing
+   (separate processes with dropped capabilities) is a stronger boundary
+   than FFI and doesn't require a second language.
+
+kodo-gate is now a pure Ruby module that handles policy decisions
+(should this be allowed?) while process-level sandboxing handles
+enforcement (make sure it can't do anything else).
 
 ## Architecture Decisions
 
@@ -159,12 +170,90 @@ before entering the router. Adding a new platform means implementing one
 class — the router, memory, and LLM don't know or care where messages
 come from.
 
-### Skill Sandboxing (Phase 2)
+### Skill Security Model
 
-Level 1 with capability tokens: skills run as forked Ruby processes with
-restricted `$SAFE` level. Can only access resources with explicit capability
-tokens validated by the Rust gate. Not bulletproof but dramatically better
-than OpenClaw's "skills run in the main process with full access."
+Skills are the primary attack surface. A skill claims to do one thing but
+could do anything once executed — the LLM invokes it based on a description,
+not by inspecting the code. This is exactly how Cisco caught OpenClaw skills
+exfiltrating data.
+
+Kodo's approach is defense in depth across three layers:
+
+#### Layer 1: LLM-Powered Code Audit
+
+At install time (and on every update), the skill's source code is analyzed
+by the user's own configured LLM. The audit:
+
+- Compares declared capabilities against what the code actually does
+- Flags discrepancies (e.g., a weather skill making unexpected network calls)
+- Detects obfuscation, eval(), dynamic requires, remote code loading
+- Generates a **capability manifest**: what the skill needs (network domains,
+  filesystem paths, process spawning, etc.)
+- Presents a human-readable summary for user approval
+
+The user's own LLM key pays for this — no centralized inference cost.
+
+Known limitations:
+- Prompt injection via skill metadata/comments could manipulate the auditor
+- Delayed payloads (clean code that fetches real behavior at runtime)
+- Subtle data exfiltration via legitimate-looking requests
+
+These are mitigated by Layer 2.
+
+#### Layer 2: Process-Level Sandboxing
+
+Skills run as **separate processes**, not in the main Ruby process. The
+sandbox enforces the capability manifest generated in Layer 1:
+
+- Network: only declared domains, all other outbound blocked
+- Filesystem: only declared paths, everything else denied
+- No eval, no shelling out unless explicitly declared
+- Resource limits (memory, CPU, duration) via OS-level controls
+- IPC with the main agent through a restricted protocol
+
+This is the actual enforcement — the audit tells you what the skill *should*
+need, the sandbox ensures that's all it *can* do. Neither is sufficient
+alone, but together they're strong.
+
+Implementation: `fork` + `Process.setrlimit` + dropped capabilities on
+Linux. Platform-specific sandboxing strategies for macOS/Windows.
+
+#### Layer 3: Signature Verification
+
+Skills are cryptographically signed. The signature is checked:
+- At install time (was this tampered with since it was published?)
+- At load time (was this tampered with on disk?)
+- On update (diff-scoped audit — only analyze what changed, flag new
+  capabilities requested)
+
+### Skill Marketplace Architecture
+
+Three-tier trust model:
+
+**Verified tier** (hosted on kodo.bot):
+- Manually reviewed + LLM audit by maintainers
+- Full static analysis pipeline
+- Highest trust signal
+- Small, curated catalog
+
+**Community tier** (open registry):
+- Automated static analysis on submission (AST parsing, dependency
+  scanning, network call detection — free, no LLM cost)
+- Signature storage and verification
+- Trust scoring (download counts, user reports, age)
+- LLM audit happens at install time on the user's machine, not centralized
+
+**Local/unregistered skills:**
+- Installed from git repos or local files
+- Full LLM audit at install time (user's LLM key)
+- No marketplace trust signal — user assumes responsibility
+
+Cost control strategy:
+- Static analysis is free and runs on all tiers
+- Centralized LLM audit only for verified tier (maintainers control volume)
+- Community/local skill auditing runs on the user's machine with their key
+- Cache audit results by code hash — don't re-audit unchanged code
+- Rate limit submissions per author on the community tier
 
 ## Phase Roadmap
 
@@ -178,12 +267,12 @@ than OpenClaw's "skills run in the main process with full access."
 - Audit logging
 
 ### Phase 2 — Security Layer
-- Rust `kodo-gate` permission broker (FFI from Ruby)
-- Capability-based permission model
-- Encrypted memory at rest (OS keychain integration)
-- Skill engine with process isolation
+- kodo-gate: capability-based permission model (pure Ruby)
+- LLM-powered skill auditing at install time
+- Process-level skill sandboxing (fork + resource limits)
 - Skill signing and verification
-- Input sanitization (Rust layer strips injection patterns before LLM)
+- Encrypted memory at rest
+- Capability manifest generation and enforcement
 
 ### Phase 3 — Desktop Experience
 - Tauri GUI with setup wizard
