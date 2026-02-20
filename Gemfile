@@ -7,5 +7,4 @@ gemspec
 group :development, :test do
   gem "rspec", "~> 3.13"
   gem "rubocop", "~> 1.60"
-  gem "debug", "~> 1.9"
 end

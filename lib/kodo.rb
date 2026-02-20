@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "zeitwerk"
+require_relative "kodo/version"
 
 module Kodo
   class Error < StandardError; end
@@ -11,6 +12,7 @@ module Kodo
         loader = Zeitwerk::Loader.new
         loader.push_dir(File.join(__dir__))
         loader.inflector.inflect("llm" => "LLM")
+        loader.ignore(File.join(__dir__, "kodo", "version.rb"))
         loader.setup
         loader
       end

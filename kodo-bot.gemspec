@@ -27,15 +27,7 @@ Gem::Specification.new do |spec|
 
   # Core
   spec.add_dependency "zeitwerk", "~> 2.6"
-  spec.add_dependency "async", "~> 2.0"
-  spec.add_dependency "async-http", "~> 0.75"
 
   # LLM
   spec.add_dependency "ruby_llm", "~> 1.2"
-
-  # Channels
-  spec.add_dependency "telegram-bot-ruby", "~> 2.0"
-
-  # CLI
-  spec.add_dependency "thor", "~> 1.3"
 end
