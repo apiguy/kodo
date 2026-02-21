@@ -23,7 +23,8 @@ module Kodo
         "heartbeat_interval" => 60
       },
       "llm" => {
-        "model" => "claude-sonnet-4-20250514",
+        "model" => "claude-sonnet-4-6",
+        "utility_model" => "claude-haiku-4-5-20251001",
         "providers" => {
           "anthropic" => { "api_key_env" => "ANTHROPIC_API_KEY" }
         }
@@ -36,6 +37,7 @@ module Kodo
       },
       "memory" => {
         "encryption" => false,
+        "passphrase_env" => "KODO_PASSPHRASE",
         "store" => "file"
       },
       "logging" => {
@@ -96,6 +98,7 @@ module Kodo
 
     # --- LLM ---
     def llm_model = data.dig("llm", "model")
+    def utility_model = data.dig("llm", "utility_model") || llm_model
 
     # Returns a hash of { "provider_name" => "actual_api_key" } for all configured providers
     def llm_api_keys
@@ -123,6 +126,21 @@ module Kodo
     # Optional: Ollama base URL for local models
     def ollama_api_base
       data.dig("llm", "providers", "ollama", "api_base") || ENV["OLLAMA_API_BASE"]
+    end
+
+    # --- Memory / Encryption ---
+    def memory_encryption? = data.dig("memory", "encryption") == true
+
+    def memory_passphrase_env
+      data.dig("memory", "passphrase_env") || "KODO_PASSPHRASE"
+    end
+
+    def memory_passphrase
+      passphrase = ENV[memory_passphrase_env]
+      if memory_encryption? && (passphrase.nil? || passphrase.empty?)
+        raise Error, "Memory encryption is enabled but #{memory_passphrase_env} is not set"
+      end
+      passphrase
     end
 
     # --- Logging ---

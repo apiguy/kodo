@@ -8,9 +8,10 @@ module Kodo
     class Store
       MAX_CONTEXT_MESSAGES = 50  # Keep last N messages per conversation
 
-      def initialize
+      def initialize(passphrase: nil)
         @conversations = {}  # chat_id => Array<Hash>
         @conversations_dir = File.join(Kodo.home_dir, "memory", "conversations")
+        @passphrase = passphrase
         FileUtils.mkdir_p(@conversations_dir)
       end
 
@@ -62,7 +63,15 @@ module Kodo
         path = conversation_path(chat_id)
         return [] unless File.exist?(path)
 
-        JSON.parse(File.read(path))
+        raw = File.binread(path)
+
+        # Transparent migration: detect encrypted files by magic header
+        if Encryption.encrypted?(raw)
+          raise Kodo::Error, "Encrypted conversation file but no passphrase provided" unless @passphrase
+          raw = Encryption.decrypt(raw, key: @passphrase)
+        end
+
+        JSON.parse(raw)
       rescue JSON::ParserError => e
         Kodo.logger.warn("Corrupt conversation file #{path}: #{e.message}")
         []
@@ -70,7 +79,22 @@ module Kodo
 
       def save_conversation(chat_id)
         path = conversation_path(chat_id)
-        File.write(path, JSON.pretty_generate(@conversations[chat_id]))
+
+        # Redact sensitive data before writing to disk.
+        # The in-memory array retains originals so the LLM has
+        # access to secrets for the current session only.
+        # Uses redact_smart: regex first, then LLM for context-dependent secrets.
+        redacted = @conversations[chat_id].map do |msg|
+          msg.merge("content" => Redactor.redact_smart(msg["content"]))
+        end
+
+        json = JSON.pretty_generate(redacted)
+
+        if @passphrase
+          File.binwrite(path, Encryption.encrypt(json, key: @passphrase))
+        else
+          File.write(path, json)
+        end
       end
     end
   end

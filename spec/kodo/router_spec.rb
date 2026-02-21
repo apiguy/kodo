@@ -14,8 +14,13 @@ RSpec.describe Kodo::Router, :tmpdir do
     Kodo::Memory::Audit.new
   end
 
+  let(:knowledge) do
+    FileUtils.mkdir_p(File.join(tmpdir, "memory", "knowledge"))
+    Kodo::Memory::Knowledge.new
+  end
+
   let(:assembler) { Kodo::PromptAssembler.new(home_dir: tmpdir) }
-  let(:router) { described_class.new(memory: memory, audit: audit, prompt_assembler: assembler) }
+  let(:router) { described_class.new(memory: memory, audit: audit, prompt_assembler: assembler, knowledge: knowledge) }
 
   let(:channel) do
     instance_double(Kodo::Channels::Console, channel_id: "console")
@@ -35,6 +40,7 @@ RSpec.describe Kodo::Router, :tmpdir do
   let(:mock_chat) do
     instance_double(RubyLLM::Chat).tap do |chat|
       allow(chat).to receive(:with_instructions)
+      allow(chat).to receive(:with_tools).and_return(chat)
       allow(chat).to receive(:add_message)
       allow(chat).to receive(:ask).and_return(mock_response)
     end
@@ -110,6 +116,39 @@ RSpec.describe Kodo::Router, :tmpdir do
       expect(mock_chat).to have_received(:with_instructions).with(
         a_string_including("Security Invariants")
       )
+    end
+
+    it "registers remember and forget tools with the chat" do
+      router.route(incoming_message, channel: channel)
+
+      expect(mock_chat).to have_received(:with_tools).with(
+        an_instance_of(Kodo::Tools::RememberFact),
+        an_instance_of(Kodo::Tools::ForgetFact)
+      )
+    end
+
+    it "passes knowledge to the prompt assembler" do
+      knowledge.remember(category: "fact", content: "Likes Ruby")
+
+      router.route(incoming_message, channel: channel)
+
+      expect(mock_chat).to have_received(:with_instructions).with(
+        a_string_including("Likes Ruby")
+      )
+    end
+  end
+
+  describe "without knowledge store" do
+    let(:router) { described_class.new(memory: memory, audit: audit, prompt_assembler: assembler) }
+
+    it "works without knowledge (backwards compatible)" do
+      response = router.route(incoming_message, channel: channel)
+      expect(response.content).to eq("Ruby is a programming language.")
+    end
+
+    it "does not register tools" do
+      router.route(incoming_message, channel: channel)
+      expect(mock_chat).not_to have_received(:with_tools)
     end
   end
 end

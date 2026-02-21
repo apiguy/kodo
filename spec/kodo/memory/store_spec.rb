@@ -97,4 +97,40 @@ RSpec.describe Kodo::Memory::Store, :tmpdir do
       expect(history.length).to eq(1)
     end
   end
+
+  describe "sensitive data redaction" do
+    it "keeps original content in memory for the current session" do
+      store.append("chat1", role: "user", content: "my password: hunter2")
+
+      history = store.conversation("chat1")
+      expect(history.first[:content]).to eq("my password: hunter2")
+    end
+
+    it "redacts sensitive content on disk" do
+      store.append("chat1", role: "user", content: "my password: hunter2")
+
+      # Load from disk via new instance
+      new_store = described_class.new
+      history = new_store.conversation("chat1")
+      expect(history.first[:content]).to include("[REDACTED]")
+      expect(history.first[:content]).not_to include("hunter2")
+    end
+
+    it "redacts API keys on disk" do
+      store.append("chat1", role: "user", content: "use sk-abc123def456ghi789 for auth")
+
+      new_store = described_class.new
+      history = new_store.conversation("chat1")
+      expect(history.first[:content]).to include("[REDACTED]")
+      expect(history.first[:content]).not_to include("sk-abc123def456ghi789")
+    end
+
+    it "does not redact normal messages" do
+      store.append("chat1", role: "user", content: "I like Ruby")
+
+      new_store = described_class.new
+      history = new_store.conversation("chat1")
+      expect(history.first[:content]).to eq("I like Ruby")
+    end
+  end
 end

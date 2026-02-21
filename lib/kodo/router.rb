@@ -2,10 +2,12 @@
 
 module Kodo
   class Router
-    def initialize(memory:, audit:, prompt_assembler: nil)
+    def initialize(memory:, audit:, prompt_assembler: nil, knowledge: nil)
       @memory = memory
       @audit = audit
       @prompt_assembler = prompt_assembler || PromptAssembler.new
+      @knowledge = knowledge
+      @tools = build_tools
     end
 
     # Process an incoming message and return a response message
@@ -22,16 +24,24 @@ module Kodo
       )
 
       # Assemble the system prompt from layered files
+      knowledge_text = @knowledge&.for_prompt
       system_prompt = @prompt_assembler.assemble(
         runtime_context: {
           model: Kodo.config.llm_model,
           channels: channel.channel_id
-        }
+        },
+        knowledge: knowledge_text
       )
 
       # Build a fresh RubyLLM chat with conversation history
       chat = LLM.chat
       chat.with_instructions(system_prompt)
+
+      # Register tools if knowledge store is available
+      if @tools.any?
+        reset_tool_rate_limits!
+        chat.with_tools(*@tools)
+      end
 
       history = @memory.conversation(chat_id)
       prior = history[0...-1] || []
@@ -60,6 +70,23 @@ module Kodo
           reply_to_message_id: message.metadata[:message_id]
         }
       )
+    end
+
+    private
+
+    def build_tools
+      return [] unless @knowledge
+
+      [
+        Tools::RememberFact.new(knowledge: @knowledge, audit: @audit),
+        Tools::ForgetFact.new(knowledge: @knowledge, audit: @audit)
+      ]
+    end
+
+    def reset_tool_rate_limits!
+      @tools.each do |tool|
+        tool.reset_turn_count! if tool.respond_to?(:reset_turn_count!)
+      end
     end
   end
 end

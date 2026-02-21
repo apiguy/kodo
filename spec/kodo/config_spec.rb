@@ -10,7 +10,7 @@ RSpec.describe Kodo::Config, :tmpdir do
       config = described_class.load(File.join(tmpdir, "nonexistent.yml"))
       expect(config.port).to eq(7377)
       expect(config.heartbeat_interval).to eq(60)
-      expect(config.llm_model).to eq("claude-sonnet-4-20250514")
+      expect(config.llm_model).to eq("claude-sonnet-4-6")
     end
 
     it "deep merges user config with defaults" do
@@ -42,7 +42,20 @@ RSpec.describe Kodo::Config, :tmpdir do
     end
 
     it "#llm_model returns model name" do
-      expect(default_config.llm_model).to eq("claude-sonnet-4-20250514")
+      expect(default_config.llm_model).to eq("claude-sonnet-4-6")
+    end
+
+    it "#utility_model returns haiku by default" do
+      expect(default_config.utility_model).to eq("claude-haiku-4-5-20251001")
+    end
+
+    it "#utility_model returns configured utility model" do
+      config = described_class.new(
+        described_class::DEFAULTS.merge(
+          "llm" => described_class::DEFAULTS["llm"].merge("utility_model" => "claude-haiku-4-5-20251001")
+        )
+      )
+      expect(config.utility_model).to eq("claude-haiku-4-5-20251001")
     end
 
     it "#log_level returns symbol" do
@@ -55,6 +68,40 @@ RSpec.describe Kodo::Config, :tmpdir do
 
     it "#telegram_enabled? returns false by default" do
       expect(default_config.telegram_enabled?).to be false
+    end
+  end
+
+  describe "memory/encryption accessors" do
+    it "#memory_encryption? returns false by default" do
+      expect(default_config.memory_encryption?).to be false
+    end
+
+    it "#memory_passphrase_env returns KODO_PASSPHRASE by default" do
+      expect(default_config.memory_passphrase_env).to eq("KODO_PASSPHRASE")
+    end
+
+    it "#memory_passphrase reads from the configured env var" do
+      allow(ENV).to receive(:[]).and_call_original
+      allow(ENV).to receive(:[]).with("KODO_PASSPHRASE").and_return("my-secret")
+
+      expect(default_config.memory_passphrase).to eq("my-secret")
+    end
+
+    it "#memory_passphrase raises when encryption is enabled but passphrase is missing" do
+      config = described_class.new(
+        described_class::DEFAULTS.merge("memory" => { "encryption" => true, "passphrase_env" => "KODO_PASSPHRASE" })
+      )
+      allow(ENV).to receive(:[]).and_call_original
+      allow(ENV).to receive(:[]).with("KODO_PASSPHRASE").and_return(nil)
+
+      expect { config.memory_passphrase }.to raise_error(Kodo::Error, /not set/)
+    end
+
+    it "#memory_passphrase returns nil when encryption is disabled and no passphrase" do
+      allow(ENV).to receive(:[]).and_call_original
+      allow(ENV).to receive(:[]).with("KODO_PASSPHRASE").and_return(nil)
+
+      expect(default_config.memory_passphrase).to be_nil
     end
   end
 

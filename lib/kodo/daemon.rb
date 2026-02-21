@@ -8,15 +8,22 @@ module Kodo
       @config = config || Kodo.config
       @heartbeat_interval = heartbeat_interval || @config.heartbeat_interval
 
-      @memory = Memory::Store.new
+      passphrase = resolve_passphrase
+      @memory = Memory::Store.new(passphrase: passphrase)
       @audit = Memory::Audit.new
+      @knowledge = Memory::Knowledge.new(passphrase: passphrase)
       @prompt_assembler = PromptAssembler.new
-      @router = Router.new(memory: @memory, audit: @audit, prompt_assembler: @prompt_assembler)
+      @router = Router.new(
+        memory: @memory,
+        audit: @audit,
+        prompt_assembler: @prompt_assembler,
+        knowledge: @knowledge
+      )
       @channels = []
     end
 
     def start!
-      Kodo.logger.info("🥁 Kodo v#{VERSION} starting...")
+      Kodo.logger.info("Kodo v#{VERSION} starting...")
       Kodo.logger.info("   Home: #{Kodo.home_dir}")
 
       Config.ensure_home_dir!
@@ -27,21 +34,37 @@ module Kodo
       # Log which prompt files were found
       %w[persona.md user.md pulse.md origin.md].each do |f|
         path = File.join(Kodo.home_dir, f)
-        status = File.exist?(path) ? "✅" : "  "
+        status = File.exist?(path) ? "+" : " "
         Kodo.logger.info("   #{status} #{f}")
       end
+
+      if @config.memory_encryption?
+        Kodo.logger.info("   Memory encryption: enabled")
+      end
+
+      Kodo.logger.info("   Knowledge facts: #{@knowledge.count}")
 
       start_heartbeat!
     end
 
     def stop!
-      Kodo.logger.info("🥁 Kodo shutting down...")
+      Kodo.logger.info("Kodo shutting down...")
       @heartbeat&.stop!
       @channels.each(&:disconnect!)
-      Kodo.logger.info("🥁 Goodbye.")
+      Kodo.logger.info("Goodbye.")
     end
 
     private
+
+    def resolve_passphrase
+      return nil unless @config.memory_encryption?
+
+      passphrase = @config.memory_passphrase
+      unless passphrase
+        Kodo.logger.warn("Memory encryption enabled but no passphrase set. Data will be stored in plaintext.")
+      end
+      passphrase
+    end
 
     def configure_llm!
       LLM.configure!(config)

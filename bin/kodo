@@ -6,23 +6,25 @@ require_relative "../lib/kodo"
 module Kodo
   class CLI
     COMMANDS = {
-      "start"   => "Start the Kodo daemon",
-      "chat"    => "Chat with Kodo directly in the terminal",
-      "status"  => "Show daemon status",
-      "version" => "Show version",
-      "init"    => "Create default config and prompt files in ~/.kodo/",
-      "help"    => "Show this help"
+      "start"    => "Start the Kodo daemon",
+      "chat"     => "Chat with Kodo directly in the terminal",
+      "memories" => "List what Kodo remembers about you",
+      "status"   => "Show daemon status",
+      "version"  => "Show version",
+      "init"     => "Create default config and prompt files in ~/.kodo/",
+      "help"     => "Show this help"
     }.freeze
 
     def run(args = ARGV)
       command = args.first || "help"
 
       case command
-      when "start"   then start(args)
-      when "chat"    then chat
-      when "init"    then init
-      when "version" then puts "kodo v#{VERSION}"
-      when "status"  then status
+      when "start"    then start(args)
+      when "chat"     then chat
+      when "memories" then memories
+      when "init"     then init
+      when "version"  then puts "kodo v#{VERSION}"
+      when "status"   then status
       else help
       end
     end
@@ -50,13 +52,16 @@ module Kodo
       assembler.ensure_default_files!
       LLM.configure!(Kodo.config)
 
+      passphrase = Kodo.config.memory_encryption? ? Kodo.config.memory_passphrase : nil
+
       puts "🥁 Kodo v#{VERSION} — direct chat mode"
       puts "   Model: #{Kodo.config.llm_model}"
       puts "   Type your message and press Enter. Ctrl+C to quit.\n\n"
 
-      memory = Memory::Store.new
+      memory = Memory::Store.new(passphrase: passphrase)
       audit = Memory::Audit.new
-      router = Router.new(memory: memory, audit: audit, prompt_assembler: assembler)
+      knowledge = Memory::Knowledge.new(passphrase: passphrase)
+      router = Router.new(memory: memory, audit: audit, prompt_assembler: assembler, knowledge: knowledge)
       console = Channels::Console.new
       console.connect!
 
@@ -77,6 +82,35 @@ module Kodo
       end
     rescue Interrupt
       puts "\n\n🥁 Goodbye."
+    end
+
+    def memories
+      Config.ensure_home_dir!
+      passphrase = Kodo.config.memory_encryption? ? Kodo.config.memory_passphrase : nil
+      knowledge = Memory::Knowledge.new(passphrase: passphrase)
+
+      active = knowledge.all_active
+      if active.empty?
+        puts "Kodo has no stored memories yet."
+        puts "Chat with Kodo and it will remember things you tell it."
+        return
+      end
+
+      puts "Kodo's memories (#{active.length} facts):"
+      puts ""
+
+      grouped = active.group_by { |f| f["category"] }
+      Memory::Knowledge::VALID_CATEGORIES.each do |cat|
+        facts = grouped[cat]
+        next unless facts&.any?
+
+        puts "  #{cat.upcase} (#{facts.length})"
+        facts.each do |f|
+          puts "    - #{f['content']}"
+          puts "      id: #{f['id']}  source: #{f['source']}  #{f['created_at']}"
+        end
+        puts ""
+      end
     end
 
     def init

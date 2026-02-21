@@ -25,6 +25,11 @@ module Kodo
       def chat(model: nil)
         RubyLLM.chat(model: model || Kodo.config.llm_model)
       end
+
+      # Create a chat instance with the utility model (for lightweight tasks like redaction)
+      def utility_chat(model: nil)
+        RubyLLM.chat(model: model || Kodo.config.utility_model)
+      end
     end
   end
 end
