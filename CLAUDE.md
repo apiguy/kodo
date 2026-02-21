@@ -41,12 +41,19 @@ taking autonomous action.
 │       ├── memory/
 │       │   ├── store.rb       # Conversation persistence
 │       │   ├── knowledge.rb   # Long-term fact storage (remember/forget)
+│       │   ├── reminders.rb   # Scheduled reminders (add/dismiss/fire)
 │       │   ├── encryption.rb  # AES-256-GCM encryption at rest
 │       │   ├── redactor.rb    # Sensitive data redaction (regex + LLM)
 │       │   └── audit.rb       # Action audit trail
 │       └── tools/
-│           ├── remember_fact.rb # LLM tool: save a fact to knowledge
-│           └── forget_fact.rb   # LLM tool: remove a fact from knowledge
+│           ├── get_current_time.rb  # LLM tool: current date/time
+│           ├── remember_fact.rb     # LLM tool: save a fact to knowledge
+│           ├── forget_fact.rb       # LLM tool: remove a fact from knowledge
+│           ├── recall_facts.rb      # LLM tool: search knowledge store
+│           ├── update_fact.rb       # LLM tool: update a fact in place
+│           ├── set_reminder.rb      # LLM tool: schedule a reminder
+│           ├── list_reminders.rb    # LLM tool: list active reminders
+│           └── dismiss_reminder.rb  # LLM tool: cancel a reminder
 ├── config/
 │   └── default.yml      # Default configuration
 └── spec/                # RSpec tests
@@ -106,6 +113,8 @@ ruby bin/kodo start
   `llm.providers` and set the corresponding environment variable
 - Test the heartbeat: `ruby bin/kodo start --heartbeat-interval=5` for rapid
   iteration
+- Add a new tool: create `lib/kodo/tools/your_tool.rb` extending `RubyLLM::Tool`,
+  accept dependencies via constructor injection, register it in `Router#build_tools`
 
 ## What NOT to do
 

@@ -145,6 +145,26 @@ enforcement (make sure it can't do anything else).
 
 ## Architecture Decisions
 
+### Tool Safety Tiers
+
+Tools run in-process with full Ruby access. Without sandboxing (kodo-gate),
+we can only safely expose tools that operate on Kodo's own internal state or
+are read-only with no side effects.
+
+**Safe now (implemented):** Tools that touch only Kodo's internal stores.
+- `get_current_time` — pure read, no state
+- Knowledge tools (`remember`, `forget`, `recall_facts`, `update_fact`) — read/write Kodo's own knowledge store
+- Reminder tools (`set_reminder`, `list_reminders`, `dismiss_reminder`) — read/write Kodo's own reminders store
+
+All mutation tools enforce: rate limits per turn, content length caps (500
+chars), and sensitive data filtering via `Memory::Redactor`.
+
+**Moderate risk (planned, needs mitigations):**
+- `web_fetch` (GET only) — risk: data exfiltration via URL params, SSRF. Needs domain allowlist, private IP blocking, timeout, size cap.
+- `read_file` — risk: exposing sensitive files. Needs directory allowlist, block known sensitive paths, symlink resolution.
+
+**Wait for sandboxing:** `run_command`, `write_file`, `send_email`, `manage_processes`, `modify_config`, `database_access` — all need kodo-gate + process isolation.
+
 ### The Heartbeat Is the Product
 
 The heartbeat loop is what makes Kodo an agent rather than a chatbot. It
@@ -262,10 +282,13 @@ Cost control strategy:
 - Ruby daemon with heartbeat loop
 - Multi-provider LLM via RubyLLM
 - Telegram channel adapter
-- Console channel for CLI chat
+- Console channel for CLI chat (with thinking spinner)
 - Composable prompt assembly (persona.md, user.md, pulse.md, origin.md)
 - File-based conversation memory with optional AES-256-GCM encryption
-- Knowledge store (long-term facts with remember/forget tools)
+- Knowledge store (long-term facts with remember/forget/recall/update tools)
+- Reminders store with proactive heartbeat delivery
+- 8 LLM tools: get_current_time, remember, forget, recall_facts, update_fact,
+  set_reminder, list_reminders, dismiss_reminder
 - Sensitive data redaction (regex + LLM-assisted via utility model)
 - Audit logging
 
@@ -293,16 +316,17 @@ Cost control strategy:
 The foundation is complete. The daemon is functional with:
 
 - `PromptAssembler` with layered security hierarchy
-- `Router` wired to RubyLLM with conversation memory and knowledge tools
-- `Heartbeat` loop with configurable interval
+- `Router` wired to RubyLLM with conversation memory and 8 LLM tools
+- `Heartbeat` loop with configurable interval and proactive reminder delivery
 - Telegram channel adapter (direct API, no gem dependency)
-- Console channel for CLI chat
+- Console channel for CLI chat (with thinking spinner)
 - File-based memory store with optional AES-256-GCM encryption
-- Knowledge store for long-term facts (remember/forget via LLM tools)
+- Knowledge store for long-term facts (remember/forget/recall/update via LLM tools)
+- Reminders store with scheduled delivery through the heartbeat
 - Sensitive data redaction (regex patterns + LLM-assisted classification)
 - Daily audit logs (JSONL)
-- CLI with start, chat, memories, init, status, version, help
-- Full RSpec test suite
+- CLI with start, chat, memories, reminders, init, status, version, help
+- Full RSpec test suite (240+ examples)
 
 **Next milestone:** Security layer (kodo-gate, skill sandboxing).
 

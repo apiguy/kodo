@@ -76,14 +76,13 @@ The core event loop that defines Kodo as an agent rather than a chatbot.
 Configurable interval (default: 60 seconds). On each beat:
 
 1. **Collect** — poll all connected channels for new messages
-2. **Schedule** — check if any registered pulses (cron-like tasks) are due
-3. **Context** — assemble conversation history + pending tasks + system state
-4. **Reason** — send context to the LLM, get a decision
-5. **Act** — execute any actions through the permission gate
-6. **Log** — write the full beat to the audit trail
+2. **Route** — send each message through the router and respond
+3. **Reminders** — check for due reminders and deliver them to the right channel
+4. **Log** — write the full beat to the audit trail
 
 The heartbeat runs even when no messages are received. This is what makes
-Kodo proactive — it can notice things and act on its own.
+Kodo proactive — it can deliver reminders and (in the future) run scheduled
+tasks without any user input.
 
 ### LLM Provider (`Kodo::LLM`)
 
@@ -164,7 +163,7 @@ Future: Slack, Discord, WhatsApp, Signal
 
 ### Memory Store (`Kodo::Memory`)
 
-Conversation history and long-term agent memory. File-based storage (JSON)
+Conversation history and long-term agent memory. File-based storage (JSONL)
 with optional AES-256-GCM encryption at rest. Structure:
 
 ```
@@ -177,9 +176,38 @@ with optional AES-256-GCM encryption at rest. Structure:
   memory/
     conversations/     # per-channel conversation history
     knowledge/         # long-term learned facts
+    reminders/         # scheduled reminders
     audit/             # action audit trail
   skills/              # installed skill definitions
 ```
+
+### Tools (`Kodo::Tools`)
+
+LLM tools give the agent the ability to take actions beyond generating text.
+All tools extend `RubyLLM::Tool` and receive dependencies via constructor
+injection. The router registers tools based on which stores are available.
+
+**Always available:**
+- `get_current_time` — returns current date, time, day of week, and time period
+
+**Knowledge tools** (require knowledge store):
+- `remember` — save a fact about the user
+- `forget` — remove a previously remembered fact
+- `recall_facts` — search knowledge by query and/or category
+- `update_fact` — update a fact in place (forget + remember with same metadata)
+
+**Reminder tools** (require reminders store):
+- `set_reminder` — schedule a reminder for a future time
+- `list_reminders` — show all active reminders sorted by due time
+- `dismiss_reminder` — cancel a reminder by ID
+
+Tools that mutate state (remember, update_fact, set_reminder) enforce rate
+limits per turn, content length caps, and sensitive data filtering via the
+Redactor. The heartbeat delivers due reminders proactively.
+
+**Adding a new tool:** Create a class in `lib/kodo/tools/` extending
+`RubyLLM::Tool`, accept dependencies via `initialize`, implement `#execute`
+and `#name`, then register it in `Router#build_tools`.
 
 ### Message Types
 
@@ -237,10 +265,12 @@ logging:
 - Multi-provider LLM support via RubyLLM (Anthropic, OpenAI, Gemini, Ollama, etc.)
 - Telegram channel adapter
 - Conversation memory (file-based, encrypted at rest)
-- Knowledge store (long-term facts with remember/forget tools)
+- Knowledge store (long-term facts with remember/forget/recall/update tools)
+- Reminders with proactive heartbeat delivery
+- 8 LLM tools (time, knowledge CRUD, reminders CRUD)
 - Sensitive data redaction (regex + LLM-assisted)
 - Audit logging
-- CLI direct chat (`kodo chat`)
+- CLI direct chat with thinking spinner (`kodo chat`)
 
 ### Planned — Security
 - kodo-gate: capability-based permission model (pure Ruby)
