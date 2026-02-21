@@ -118,12 +118,15 @@ RSpec.describe Kodo::Router, :tmpdir do
       )
     end
 
-    it "registers remember and forget tools with the chat" do
+    it "registers tools with the chat" do
       router.route(incoming_message, channel: channel)
 
       expect(mock_chat).to have_received(:with_tools).with(
+        an_instance_of(Kodo::Tools::GetCurrentTime),
         an_instance_of(Kodo::Tools::RememberFact),
-        an_instance_of(Kodo::Tools::ForgetFact)
+        an_instance_of(Kodo::Tools::ForgetFact),
+        an_instance_of(Kodo::Tools::RecallFacts),
+        an_instance_of(Kodo::Tools::UpdateFact)
       )
     end
 
@@ -146,9 +149,40 @@ RSpec.describe Kodo::Router, :tmpdir do
       expect(response.content).to eq("Ruby is a programming language.")
     end
 
-    it "does not register tools" do
+    it "registers only GetCurrentTime tool" do
       router.route(incoming_message, channel: channel)
-      expect(mock_chat).not_to have_received(:with_tools)
+
+      expect(mock_chat).to have_received(:with_tools).with(
+        an_instance_of(Kodo::Tools::GetCurrentTime)
+      )
+    end
+  end
+
+  describe "with reminders store" do
+    let(:reminders) do
+      FileUtils.mkdir_p(File.join(tmpdir, "memory", "reminders"))
+      Kodo::Memory::Reminders.new
+    end
+    let(:router) do
+      described_class.new(
+        memory: memory, audit: audit, prompt_assembler: assembler,
+        knowledge: knowledge, reminders: reminders
+      )
+    end
+
+    it "registers reminder tools with the chat" do
+      router.route(incoming_message, channel: channel)
+
+      expect(mock_chat).to have_received(:with_tools).with(
+        an_instance_of(Kodo::Tools::GetCurrentTime),
+        an_instance_of(Kodo::Tools::RememberFact),
+        an_instance_of(Kodo::Tools::ForgetFact),
+        an_instance_of(Kodo::Tools::RecallFacts),
+        an_instance_of(Kodo::Tools::UpdateFact),
+        an_instance_of(Kodo::Tools::SetReminder),
+        an_instance_of(Kodo::Tools::ListReminders),
+        an_instance_of(Kodo::Tools::DismissReminder)
+      )
     end
   end
 end

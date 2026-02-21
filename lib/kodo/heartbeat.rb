@@ -2,10 +2,11 @@
 
 module Kodo
   class Heartbeat
-    def initialize(channels:, router:, audit:, interval: 60)
+    def initialize(channels:, router:, audit:, reminders: nil, interval: 60)
       @channels = channels
       @router = router
       @audit = audit
+      @reminders = reminders
       @interval = interval
       @running = false
       @beat_count = 0
@@ -48,8 +49,8 @@ module Kodo
         process_message(message, channel)
       end
 
-      # Phase 3: Schedule — check cron-like pulses (future)
-      # TODO: scheduled tasks
+      # Phase 3: Reminders — deliver any due reminders
+      deliver_due_reminders!
 
     rescue StandardError => e
       Kodo.logger.error("Heartbeat error: #{e.message}")
@@ -73,6 +74,39 @@ module Kodo
       end
 
       messages
+    end
+
+    def deliver_due_reminders!
+      return unless @reminders
+
+      @reminders.due_reminders.each do |reminder|
+        channel = find_channel(reminder["channel_id"])
+        next unless channel
+
+        message = Message.new(
+          channel_id: reminder["channel_id"],
+          sender: :agent,
+          content: "Reminder: #{reminder['content']}",
+          metadata: { chat_id: reminder["chat_id"] }
+        )
+
+        channel.send_message(message)
+        @reminders.fire!(reminder["id"])
+
+        @audit.log(
+          event: "reminder_fired",
+          channel: reminder["channel_id"],
+          detail: "id:#{reminder['id']} content:#{reminder['content']&.slice(0, 60)}"
+        )
+
+        Kodo.logger.info("Fired reminder: #{reminder['content']&.slice(0, 60)}")
+      rescue StandardError => e
+        Kodo.logger.error("Error firing reminder #{reminder['id']}: #{e.message}")
+      end
+    end
+
+    def find_channel(channel_id)
+      @channels.find { |c| c.channel_id == channel_id && c.running? }
     end
 
     def process_message(message, channel)

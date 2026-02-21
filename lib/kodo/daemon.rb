@@ -12,12 +12,14 @@ module Kodo
       @memory = Memory::Store.new(passphrase: passphrase)
       @audit = Memory::Audit.new
       @knowledge = Memory::Knowledge.new(passphrase: passphrase)
+      @reminders = Memory::Reminders.new(passphrase: passphrase)
       @prompt_assembler = PromptAssembler.new
       @router = Router.new(
         memory: @memory,
         audit: @audit,
         prompt_assembler: @prompt_assembler,
-        knowledge: @knowledge
+        knowledge: @knowledge,
+        reminders: @reminders
       )
       @channels = []
     end
@@ -43,6 +45,7 @@ module Kodo
       end
 
       Kodo.logger.info("   Knowledge facts: #{@knowledge.count}")
+      Kodo.logger.info("   Active reminders: #{@reminders.active_count}")
 
       start_heartbeat!
     end
@@ -90,6 +93,7 @@ module Kodo
         channels: @channels,
         router: @router,
         audit: @audit,
+        reminders: @reminders,
         interval: @heartbeat_interval
       )
 

@@ -18,6 +18,9 @@ module Kodo
           end
         end
 
+        # Refresh model registry so newly released models are recognized
+        RubyLLM.models.refresh!
+
         Kodo.logger.info("LLM configured: #{config.llm_model}")
       end
 

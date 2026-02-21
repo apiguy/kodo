@@ -69,6 +69,7 @@ module Kodo
           Kodo.home_dir,
           File.join(Kodo.home_dir, "memory", "conversations"),
           File.join(Kodo.home_dir, "memory", "knowledge"),
+          File.join(Kodo.home_dir, "memory", "reminders"),
           File.join(Kodo.home_dir, "memory", "audit"),
           File.join(Kodo.home_dir, "skills")
         ]

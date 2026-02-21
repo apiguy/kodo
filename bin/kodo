@@ -6,25 +6,27 @@ require_relative "../lib/kodo"
 module Kodo
   class CLI
     COMMANDS = {
-      "start"    => "Start the Kodo daemon",
-      "chat"     => "Chat with Kodo directly in the terminal",
-      "memories" => "List what Kodo remembers about you",
-      "status"   => "Show daemon status",
-      "version"  => "Show version",
-      "init"     => "Create default config and prompt files in ~/.kodo/",
-      "help"     => "Show this help"
+      "start"     => "Start the Kodo daemon",
+      "chat"      => "Chat with Kodo directly in the terminal",
+      "memories"  => "List what Kodo remembers about you",
+      "reminders" => "List active reminders",
+      "status"    => "Show daemon status",
+      "version"   => "Show version",
+      "init"      => "Create default config and prompt files in ~/.kodo/",
+      "help"      => "Show this help"
     }.freeze
 
     def run(args = ARGV)
       command = args.first || "help"
 
       case command
-      when "start"    then start(args)
-      when "chat"     then chat
-      when "memories" then memories
-      when "init"     then init
-      when "version"  then puts "kodo v#{VERSION}"
-      when "status"   then status
+      when "start"     then start(args)
+      when "chat"      then chat
+      when "memories"  then memories
+      when "reminders" then reminders
+      when "init"      then init
+      when "version"   then puts "kodo v#{VERSION}"
+      when "status"    then status
       else help
       end
     end
@@ -61,7 +63,14 @@ module Kodo
       memory = Memory::Store.new(passphrase: passphrase)
       audit = Memory::Audit.new
       knowledge = Memory::Knowledge.new(passphrase: passphrase)
-      router = Router.new(memory: memory, audit: audit, prompt_assembler: assembler, knowledge: knowledge)
+      reminder_store = Memory::Reminders.new(passphrase: passphrase)
+      router = Router.new(
+        memory: memory,
+        audit: audit,
+        prompt_assembler: assembler,
+        knowledge: knowledge,
+        reminders: reminder_store
+      )
       console = Channels::Console.new
       console.connect!
 
@@ -77,7 +86,7 @@ module Kodo
           metadata: { chat_id: "console" }
         )
 
-        response = router.route(message, channel: console)
+        response = with_spinner { router.route(message, channel: console) }
         console.send_message(response)
       end
     rescue Interrupt
@@ -111,6 +120,27 @@ module Kodo
         end
         puts ""
       end
+    end
+
+    def reminders
+      Config.ensure_home_dir!
+      passphrase = Kodo.config.memory_encryption? ? Kodo.config.memory_passphrase : nil
+      reminder_store = Memory::Reminders.new(passphrase: passphrase)
+
+      active = reminder_store.all_active.sort_by { |r| r["due_at"] }
+      if active.empty?
+        puts "No active reminders."
+        return
+      end
+
+      puts "Active reminders (#{active.length}):"
+      puts ""
+
+      active.each do |r|
+        puts "  - #{r['content']}"
+        puts "    due: #{r['due_at']}  id: #{r['id']}"
+      end
+      puts ""
     end
 
     def init
@@ -168,6 +198,25 @@ module Kodo
       puts ""
 
       puts "   Telegram: #{ENV["TELEGRAM_BOT_TOKEN"] ? "✅ set" : "❌ TELEGRAM_BOT_TOKEN missing"}"
+    end
+
+    def with_spinner
+      frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+      done = false
+      spinner = Thread.new do
+        i = 0
+        while !done
+          print "\r\e[36m#{frames[i % frames.length]} thinking...\e[0m"
+          i += 1
+          sleep 0.1
+        end
+        print "\r\e[K"
+      end
+
+      result = yield
+      done = true
+      spinner.join
+      result
     end
 
     def help

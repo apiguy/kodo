@@ -2,17 +2,21 @@
 
 module Kodo
   class Router
-    def initialize(memory:, audit:, prompt_assembler: nil, knowledge: nil)
+    def initialize(memory:, audit:, prompt_assembler: nil, knowledge: nil, reminders: nil)
       @memory = memory
       @audit = audit
       @prompt_assembler = prompt_assembler || PromptAssembler.new
       @knowledge = knowledge
+      @reminders = reminders
       @tools = build_tools
     end
 
     # Process an incoming message and return a response message
     def route(message, channel:)
       chat_id = message.metadata[:chat_id] || message.metadata["chat_id"]
+
+      # Set channel context on SetReminder so it knows where to deliver
+      set_reminder_context(channel.channel_id, chat_id)
 
       # Store the user's message
       @memory.append(chat_id, role: "user", content: message.content)
@@ -37,7 +41,7 @@ module Kodo
       chat = LLM.chat
       chat.with_instructions(system_prompt)
 
-      # Register tools if knowledge store is available
+      # Register tools with the LLM chat
       if @tools.any?
         reset_tool_rate_limits!
         chat.with_tools(*@tools)
@@ -75,17 +79,41 @@ module Kodo
     private
 
     def build_tools
-      return [] unless @knowledge
+      tools = []
 
-      [
-        Tools::RememberFact.new(knowledge: @knowledge, audit: @audit),
-        Tools::ForgetFact.new(knowledge: @knowledge, audit: @audit)
-      ]
+      # Always available
+      tools << Tools::GetCurrentTime.new(audit: @audit)
+
+      # Knowledge tools (require knowledge store)
+      if @knowledge
+        tools << Tools::RememberFact.new(knowledge: @knowledge, audit: @audit)
+        tools << Tools::ForgetFact.new(knowledge: @knowledge, audit: @audit)
+        tools << Tools::RecallFacts.new(knowledge: @knowledge, audit: @audit)
+        tools << Tools::UpdateFact.new(knowledge: @knowledge, audit: @audit)
+      end
+
+      # Reminder tools (require reminders store)
+      if @reminders
+        tools << Tools::SetReminder.new(reminders: @reminders, audit: @audit)
+        tools << Tools::ListReminders.new(reminders: @reminders, audit: @audit)
+        tools << Tools::DismissReminder.new(reminders: @reminders, audit: @audit)
+      end
+
+      tools
     end
 
     def reset_tool_rate_limits!
       @tools.each do |tool|
         tool.reset_turn_count! if tool.respond_to?(:reset_turn_count!)
+      end
+    end
+
+    def set_reminder_context(channel_id, chat_id)
+      @tools.each do |tool|
+        if tool.is_a?(Tools::SetReminder)
+          tool.channel_id = channel_id
+          tool.chat_id = chat_id
+        end
       end
     end
   end
