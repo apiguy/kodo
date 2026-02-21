@@ -38,9 +38,15 @@ taking autonomous action.
 │       │   ├── base.rb        # Abstract channel interface
 │       │   ├── telegram.rb    # Telegram Bot API adapter
 │       │   └── console.rb     # Direct CLI chat channel
-│       └── memory/
-│           ├── store.rb       # Conversation + knowledge persistence
-│           └── audit.rb       # Action audit trail
+│       ├── memory/
+│       │   ├── store.rb       # Conversation persistence
+│       │   ├── knowledge.rb   # Long-term fact storage (remember/forget)
+│       │   ├── encryption.rb  # AES-256-GCM encryption at rest
+│       │   ├── redactor.rb    # Sensitive data redaction (regex + LLM)
+│       │   └── audit.rb       # Action audit trail
+│       └── tools/
+│           ├── remember_fact.rb # LLM tool: save a fact to knowledge
+│           └── forget_fact.rb   # LLM tool: remove a fact from knowledge
 ├── config/
 │   └── default.yml      # Default configuration
 └── spec/                # RSpec tests
@@ -60,8 +66,8 @@ taking autonomous action.
    incoming messages, enabling proactive behavior.
 
 4. **Security is a gate, not a wall.** The permission model is capability-based.
-   Skills/actions declare what they need, users grant scoped tokens. This will
-   eventually be enforced by a Rust FFI layer (kodo-gate).
+   Skills/actions declare what they need, users grant scoped tokens. Enforcement
+   is via process-level sandboxing, with policy handled by kodo-gate (pure Ruby).
 
 5. **Prompts are assembled, not hardcoded.** The system prompt is built from
    layered files in ~/.kodo/ with a strict hierarchy:
@@ -96,8 +102,8 @@ ruby bin/kodo start
 
 - Add a new channel: create `lib/kodo/channels/your_channel.rb` implementing
   the `Kodo::Channels::Base` interface, register it in `config/default.yml`
-- Add an LLM provider: create `lib/kodo/llm/your_provider.rb` implementing
-  the `Kodo::LLM::Base` interface
+- Switch LLM providers: configure the provider in `~/.kodo/config.yml` under
+  `llm.providers` and set the corresponding environment variable
 - Test the heartbeat: `ruby bin/kodo start --heartbeat-interval=5` for rapid
   iteration
 
@@ -115,4 +121,4 @@ ruby bin/kodo start
 - [ARCHITECTURE.md](ARCHITECTURE.md) — system design and component details
 - [docs/DESIGN_DECISIONS.md](docs/DESIGN_DECISIONS.md) — naming journey,
   competitive analysis vs OpenClaw, technology choices and rationale,
-  phase roadmap with context
+  roadmap with context

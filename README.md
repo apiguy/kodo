@@ -8,7 +8,7 @@ Unlike cloud-hosted AI assistants, Kodo keeps your data on your machine, enforce
 capability-based permissions on every action, and gives you full control over
 what your agent can and cannot do.
 
-> **Status:** Early development. Phase 1 — Foundation.
+> **Status:** Early development — foundation is working, security layer is next.
 
 ## Quick Start
 
@@ -60,12 +60,13 @@ ruby bin/kodo chat
 ## Commands
 
 ```
-kodo start     Start the Kodo daemon
-kodo chat      Chat with Kodo directly in the terminal
-kodo status    Show daemon status
-kodo init      Create default config in ~/.kodo/
-kodo version   Show version
-kodo help      Show help
+kodo start      Start the Kodo daemon
+kodo chat       Chat with Kodo directly in the terminal
+kodo memories   List what Kodo remembers about you
+kodo status     Show daemon status
+kodo init       Create default config in ~/.kodo/
+kodo version    Show version
+kodo help       Show help
 ```
 
 ## How It Works
@@ -87,7 +88,7 @@ Your Phone (Telegram) ←→ Telegram API ←→ Kodo Daemon ←→ Anthropic Cl
 ## Architecture
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the full system design, component
-details, and phase roadmap.
+details, and roadmap.
 
 ## Configuration
 
@@ -102,7 +103,7 @@ Kodo stores its config and data in `~/.kodo/`:
 ├── origin.md               # First-run onboarding conversation
 └── memory/
     ├── conversations/      # Chat history (per-conversation JSON)
-    ├── knowledge/          # Long-term memory (future)
+    ├── knowledge/          # Long-term remembered facts (JSONL)
     └── audit/              # Daily audit logs (JSONL)
 ```
 
@@ -135,16 +136,22 @@ llm:
 
 ## Security
 
-Kodo is being built security-first. The current phase has basic protections;
-future phases will add:
+Kodo is being built security-first:
+
+- **Encrypted memory** — conversation history and knowledge encrypted at rest
+  (AES-256-GCM)
+- **Sensitive data redaction** — regex + LLM-assisted detection scrubs secrets
+  before writing to disk
+- **Audit trail** — every action logged with what triggered it
+- **Layered prompt security** — hardcoded invariants cannot be overridden by
+  user-editable files
+
+Planned:
 
 - **Capability-based permissions** — skills declare what they need, you grant
   scoped access
 - **Sandboxed skill execution** — skills run in isolated processes
 - **Signed skills** — cryptographic verification before loading any skill
-- **Encrypted memory** — conversation history encrypted at rest
-- **Audit trail** — every action logged with what triggered it and what
-  permissions were used
 
 ## License
 

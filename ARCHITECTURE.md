@@ -22,8 +22,8 @@ permissions on every action.
 │                    User Interfaces                    │
 │                                                      │
 │   ┌─────────────┐   ┌─────────────┐   ┌──────────┐  │
-│   │  Tauri GUI  │   │  CLI (kodo) │   │ Web Chat │  │
-│   │  (Phase 3)  │   │  (Phase 2)  │   │ (future) │  │
+│   │ Desktop GUI │   │  CLI (kodo) │   │ Web Chat │  │
+│   │  (future)   │   │             │   │ (future) │  │
 │   └──────┬──────┘   └──────┬──────┘   └────┬─────┘  │
 │          └─────────────────┼────────────────┘        │
 │                            │                         │
@@ -65,8 +65,8 @@ permissions on every action.
 
 ## Port: 7377
 
-The daemon listens on `localhost:7377` ("KODO" on a phone keypad: 5-6-3-6...
-close enough. Actually chosen because 7377 is unregistered and memorable.)
+The daemon listens on `localhost:7377`. This port is unregistered with IANA
+and easy to remember.
 
 ## Component Details
 
@@ -97,7 +97,7 @@ at startup. Switching models is a one-line config change:
 
 ```yaml
 llm:
-  model: gpt-4o           # or claude-sonnet-4-20250514, gemini-2.5-pro, llama3:8b, etc.
+  model: gpt-4o           # or claude-sonnet-4-6, gemini-2.5-pro, llama3:8b, etc.
   providers:
     openai:
       api_key_env: OPENAI_API_KEY
@@ -159,13 +159,13 @@ module Kodo
 end
 ```
 
-Phase 1 channels: Telegram, CLI direct chat
-Future: Slack, Discord, WhatsApp (via Node.js sidecar), Signal
+Current channels: Telegram, CLI direct chat
+Future: Slack, Discord, WhatsApp, Signal
 
 ### Memory Store (`Kodo::Memory`)
 
-Conversation history and long-term agent memory. Phase 1 uses file-based
-storage (JSON) encrypted at rest via OpenSSL. Structure:
+Conversation history and long-term agent memory. File-based storage (JSON)
+with optional AES-256-GCM encryption at rest. Structure:
 
 ```
 ~/.kodo/
@@ -205,7 +205,8 @@ daemon:
   heartbeat_interval: 60  # seconds
 
 llm:
-  model: claude-sonnet-4-20250514  # any model from your configured providers
+  model: claude-sonnet-4-6  # any model from your configured providers
+  # utility_model: claude-haiku-4-5-20251001  # small model for background tasks
   providers:
     anthropic:
       api_key_env: ANTHROPIC_API_KEY
@@ -220,41 +221,42 @@ channels:
     bot_token_env: TELEGRAM_BOT_TOKEN
 
 memory:
-  encryption: true
-  store: file  # file | sqlite (future)
+  encryption: false
+  passphrase_env: KODO_PASSPHRASE
+  store: file
 
 logging:
   level: info
   audit: true
 ```
 
-## Phase Roadmap
+## Roadmap
 
-### Phase 1 — Foundation (current)
-- [x] Project scaffold
-- [ ] Ruby daemon with heartbeat loop
-- [ ] Multi-provider LLM support via RubyLLM (Anthropic, OpenAI, Gemini, Ollama, etc.)
-- [ ] Telegram channel adapter
-- [ ] Basic conversation memory (file-based)
-- [ ] Audit logging
-- [ ] CLI direct chat (`kodo chat`)
+### Implemented
+- Ruby daemon with heartbeat loop
+- Multi-provider LLM support via RubyLLM (Anthropic, OpenAI, Gemini, Ollama, etc.)
+- Telegram channel adapter
+- Conversation memory (file-based, encrypted at rest)
+- Knowledge store (long-term facts with remember/forget tools)
+- Sensitive data redaction (regex + LLM-assisted)
+- Audit logging
+- CLI direct chat (`kodo chat`)
 
-### Phase 2 — Security Layer
-- [ ] kodo-gate: capability-based permission model (pure Ruby)
-- [ ] LLM-powered skill auditing at install time
-- [ ] Process-level skill sandboxing (fork + resource limits)
-- [ ] Skill signing and verification
-- [ ] Encrypted memory at rest
-- [ ] Capability manifest generation and enforcement
+### Planned — Security
+- kodo-gate: capability-based permission model (pure Ruby)
+- LLM-powered skill auditing at install time
+- Process-level skill sandboxing (fork + resource limits)
+- Skill signing and verification
+- Capability manifest generation and enforcement
 
-### Phase 3 — Desktop Experience
-- [ ] Tauri GUI with setup wizard
-- [ ] System tray / menu bar daemon management
-- [ ] Visual permission manager
-- [ ] Audit log viewer
+### Planned — Desktop Experience
+- Desktop GUI with setup wizard
+- System tray / menu bar daemon management
+- Visual permission manager
+- Audit log viewer
 
-### Phase 4 — Ecosystem
-- [ ] Additional channel adapters (Slack, Discord, WhatsApp)
-- [ ] Skill marketplace at kodo.bot
-- [ ] Plugin API for custom integrations
-- [ ] Multi-agent routing
+### Planned — Ecosystem
+- Additional channel adapters (Slack, Discord, WhatsApp)
+- Skill marketplace at kodo.bot
+- Plugin API for custom integrations
+- Multi-agent routing

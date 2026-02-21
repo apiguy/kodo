@@ -47,7 +47,7 @@ OpenClaw has massive adoption but serious security problems:
 
 Kodo addresses each of these with: signed skills, capability-based
 permissions, sandboxed execution, a layered prompt system with immutable
-security invariants, and a planned Rust security gate (Phase 2).
+security invariants, and process-level sandboxing (planned).
 
 ## What We Learned From OpenClaw's Prompt System
 
@@ -92,13 +92,14 @@ vars. Switching from Claude to GPT to a local Ollama model is a one-line
 config change. This is a major differentiator vs OpenClaw which technically
 supports multiple models but is heavily optimized for Claude.
 
-### Tauri (Rust) for Desktop GUI (Phase 3)
+### Desktop GUI (planned)
 
-Cross-platform installer and GUI using Tauri. Gives us:
+Cross-platform desktop interface for managing the daemon. Requirements:
 - Native installers for macOS, Windows, Linux
-- Tiny binary size vs Electron
-- Shared Rust crate for security-critical operations (permissions, crypto)
-- The Rust `kodo-gate` permission broker lives in this layer
+- Small binary size
+- Setup wizard, permission manager, audit log viewer
+
+Technology TBD.
 
 ### Telegram First (not WhatsApp)
 
@@ -159,7 +160,7 @@ manifesto. Ours is architecturally core.
 
 CLI and GUI are just clients talking to a local HTTP/WebSocket API on port
 7377. Business logic never lives in a client. This means you can have
-Telegram, CLI, and the Tauri GUI all connected to the same running daemon
+Telegram, CLI, and a desktop GUI all connected to the same running daemon
 with shared conversation history and state.
 
 ### Channels Are Adapters
@@ -255,66 +256,62 @@ Cost control strategy:
 - Cache audit results by code hash — don't re-audit unchanged code
 - Rate limit submissions per author on the community tier
 
-## Phase Roadmap
+## Roadmap
 
-### Phase 1 — Foundation (current, this scaffold)
+### Implemented
 - Ruby daemon with heartbeat loop
 - Multi-provider LLM via RubyLLM
 - Telegram channel adapter
 - Console channel for CLI chat
 - Composable prompt assembly (persona.md, user.md, pulse.md, origin.md)
-- File-based conversation memory
+- File-based conversation memory with optional AES-256-GCM encryption
+- Knowledge store (long-term facts with remember/forget tools)
+- Sensitive data redaction (regex + LLM-assisted via utility model)
 - Audit logging
 
-### Phase 2 — Security Layer
+### Planned — Security
 - kodo-gate: capability-based permission model (pure Ruby)
 - LLM-powered skill auditing at install time
 - Process-level skill sandboxing (fork + resource limits)
 - Skill signing and verification
-- Encrypted memory at rest
 - Capability manifest generation and enforcement
 
-### Phase 3 — Desktop Experience
-- Tauri GUI with setup wizard
+### Planned — Desktop Experience
+- Desktop GUI with setup wizard
 - System tray / menu bar daemon management
 - Visual permission manager
 - Audit log viewer
 
-### Phase 4 — Commercial Extensions
+### Planned — Ecosystem
+- Additional channel adapters (Slack, Discord, WhatsApp)
 - Domain-specific skills (wealth management, customer support, etc.)
 - Third-party data integrations
-- Enterprise UI built on top of Kodo
 - Skill marketplace at kodo.bot
 
 ## Current State
 
-The scaffold is complete and ready for implementation:
+The foundation is complete. The daemon is functional with:
 
-- 21 files across lib/, bin/, config/, docs
 - `PromptAssembler` with layered security hierarchy
-- `Router` wired to RubyLLM with conversation memory
+- `Router` wired to RubyLLM with conversation memory and knowledge tools
 - `Heartbeat` loop with configurable interval
 - Telegram channel adapter (direct API, no gem dependency)
 - Console channel for CLI chat
-- File-based memory store with per-conversation JSON
+- File-based memory store with optional AES-256-GCM encryption
+- Knowledge store for long-term facts (remember/forget via LLM tools)
+- Sensitive data redaction (regex patterns + LLM-assisted classification)
 - Daily audit logs (JSONL)
-- CLI with start, chat, init, status, version, help
+- CLI with start, chat, memories, init, status, version, help
+- Full RSpec test suite
 
-**Next steps to get to a working demo:**
-1. `bundle install` and verify gem resolution
-2. `ruby bin/kodo init` to create ~/.kodo/ with default files
-3. Set ANTHROPIC_API_KEY and TELEGRAM_BOT_TOKEN
-4. Enable Telegram in config, `ruby bin/kodo start`
-5. Send a message on Telegram — verify round-trip works
-6. Test `ruby bin/kodo chat` for console mode
-7. Edit persona.md, verify personality changes take effect
+**Next milestone:** Security layer (kodo-gate, skill sandboxing).
 
 ## Conventions
 
 - Ruby 3.2+, no Rails
 - `Data.define` for value objects
 - Zeitwerk autoloading
-- RSpec for tests (not yet scaffolded)
+- RSpec for tests
 - Secrets via environment variables, referenced by `_env` suffix in config
 - All config in `~/.kodo/config.yml`
 - All prompt files in `~/.kodo/*.md`
