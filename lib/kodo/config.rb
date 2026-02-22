@@ -50,6 +50,15 @@ module Kodo
       'logging' => {
         'level' => 'info',
         'audit' => true
+      },
+      'web' => {
+        'fetch_url_enabled' => true,
+        'web_search_enabled' => true,
+        'injection_scan' => true,
+        'audit_urls' => true,
+        'fetch_blocklist' => [],
+        'fetch_allowlist' => [],
+        'ssrf_bypass_hosts' => []
       }
     }.freeze
 
@@ -195,6 +204,24 @@ module Kodo
       return nil unless env_var
 
       ENV[env_var]
+    end
+
+    # --- Web ---
+    def web_fetch_url_enabled? = data.dig('web', 'fetch_url_enabled') != false
+    def web_search_enabled?    = data.dig('web', 'web_search_enabled') != false
+    def web_injection_scan?    = data.dig('web', 'injection_scan') != false
+    def web_audit_urls?        = data.dig('web', 'audit_urls') != false
+
+    def web_fetch_blocklist
+      data.dig('web', 'fetch_blocklist') || []
+    end
+
+    def web_fetch_allowlist
+      data.dig('web', 'fetch_allowlist') || []
+    end
+
+    def web_ssrf_bypass_hosts
+      data.dig('web', 'ssrf_bypass_hosts') || []
     end
 
     def search_provider_instance

@@ -201,9 +201,11 @@ injection. The router registers tools based on which stores are available.
 - `list_reminders` — show all active reminders sorted by due time
 - `dismiss_reminder` — cancel a reminder by ID
 
+**URL fetch tool** (always available):
+- `fetch_url` — fetch and extract text from a URL (SSRF-protected, domain policy, rate-limited 3/turn)
+
 **Web search tools** (require configured search provider):
 - `web_search` — search the web via Tavily (rate-limited, 3/turn)
-- `fetch_url` — fetch and extract text from a URL (SSRF-protected)
 
 **Secret storage tool** (require secrets broker):
 - `store_secret` — securely store an API key and activate it immediately
@@ -212,6 +214,15 @@ injection. The router registers tools based on which stores are available.
 Tools that mutate state (remember, update_fact, set_reminder, store_secret)
 enforce rate limits per turn, content length caps, and sensitive data
 filtering via the Redactor. The heartbeat delivers due reminders proactively.
+
+**Web content security:** Every `route` call creates a fresh `TurnContext`
+with a per-turn random nonce (96 bits). Web content from `fetch_url` and
+`web_search` is wrapped in `[WEB:<nonce>:START/END]` markers — the nonce is
+generated at fetch time on Kodo's machine, so a malicious page cannot forge
+the end marker to break out of the untrusted zone. If any web content is
+fetched in a turn, the `remember` tool requires explicit user confirmation
+before storing facts, blocking memory poisoning attack chains mechanically
+(not via LLM self-reporting).
 
 Each tool can optionally `extend PromptContributor` to declare its own
 capability metadata (name, enabled/disabled guidance). The Router reads these
@@ -282,8 +293,12 @@ logging:
 - Conversation memory (file-based, encrypted at rest)
 - Knowledge store (long-term facts with remember/forget/recall/update tools)
 - Reminders with proactive heartbeat delivery
-- 11 LLM tools (time, knowledge CRUD, reminders CRUD, web search, secret storage)
-- Web search via Tavily (SSRF-protected URL fetching, rate limiting)
+- 11 LLM tools (time, knowledge CRUD, reminders CRUD, web fetch, web search, secret storage)
+- URL fetching (SSRF-protected, domain blocklist/allowlist, rate limiting) — no API key required
+- Web search via Tavily (rate limiting)
+- Nonce-based web content isolation (per-turn random nonce in `[WEB:<nonce>:START/END]` markers)
+- Mechanical memory poisoning protection (turn-level `web_fetched` flag gates `remember`)
+- Detection-only injection scanner with audit logging
 - Encrypted secret storage with live activation (no restart required)
 - Tool-declared prompt context via `PromptContributor` mixin
 - Sensitive data redaction (regex + LLM-assisted)

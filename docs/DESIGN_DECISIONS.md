@@ -159,8 +159,14 @@ are read-only with no side effects.
 All mutation tools enforce: rate limits per turn, content length caps (500
 chars), and sensitive data filtering via `Memory::Redactor`.
 
+**Implemented with mitigations:**
+- `fetch_url` (GET only) — SSRF blocked via IP range checks (RFC 1918, loopback, link-local);
+  domain blocklist/allowlist with wildcard support; 15s timeout; 50KB content cap; rate-limited
+  3/turn. Web content isolated via per-turn nonce markers. `remember` gated when web content
+  was fetched this turn (mechanical flag, not LLM self-reporting).
+- `web_search` — same nonce isolation and `remember` gate as `fetch_url`.
+
 **Moderate risk (planned, needs mitigations):**
-- `web_fetch` (GET only) — risk: data exfiltration via URL params, SSRF. Needs domain allowlist, private IP blocking, timeout, size cap.
 - `read_file` — risk: exposing sensitive files. Needs directory allowlist, block known sensitive paths, symlink resolution.
 
 **Wait for sandboxing:** `run_command`, `write_file`, `send_email`, `manage_processes`, `modify_config`, `database_access` — all need kodo-gate + process isolation.
@@ -287,8 +293,11 @@ Cost control strategy:
 - File-based conversation memory with optional AES-256-GCM encryption
 - Knowledge store (long-term facts with remember/forget/recall/update tools)
 - Reminders store with proactive heartbeat delivery
-- 8 LLM tools: get_current_time, remember, forget, recall_facts, update_fact,
-  set_reminder, list_reminders, dismiss_reminder
+- 11 LLM tools: get_current_time, remember, forget, recall_facts, update_fact,
+  set_reminder, list_reminders, dismiss_reminder, fetch_url, web_search, store_secret
+- URL fetching and web search with SSRF protection, nonce-based content isolation,
+  and mechanical memory poisoning protection
+- Encrypted secret storage with live activation
 - Sensitive data redaction (regex + LLM-assisted via utility model)
 - Audit logging
 
@@ -326,7 +335,7 @@ The foundation is complete. The daemon is functional with:
 - Sensitive data redaction (regex patterns + LLM-assisted classification)
 - Daily audit logs (JSONL)
 - CLI with start, chat, memories, reminders, init, status, version, help
-- Full RSpec test suite (240+ examples)
+- Full RSpec test suite (429+ examples)
 
 **Next milestone:** Security layer (kodo-gate, skill sandboxing).
 

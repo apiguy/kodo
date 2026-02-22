@@ -16,14 +16,14 @@ module Kodo
         "Set the environment variable: export TAVILY_API_KEY=\"tvly-...\"\n" \
         "Add to ~/.kodo/config.yml: search: { provider: tavily }\n" \
         "Then restart Kodo.\n\n" \
-        "IMPORTANT: If the user pastes an API key into chat, remind them that credentials " \
-        "should be set as environment variables, not shared in conversation. The key will " \
-        "be redacted from conversation history for security."
+        'IMPORTANT: If the user pastes an API key into chat, remind them that credentials ' \
+        'should be set as environment variables, not shared in conversation. The key will ' \
+        'be redacted from conversation history for security.'
 
       DISABLED_GUIDANCE_WITH_SECRET_STORAGE =
         "Tavily is the easiest option (free tier, 1000 searches/month, no credit card).\n" \
         "Get an API key from https://app.tavily.com/sign-in\n" \
-        "They can paste the key right here in chat and you will store it securely."
+        'They can paste the key right here in chat and you will store it securely.'
 
       MAX_PER_TURN = 3
 
@@ -33,11 +33,14 @@ module Kodo
       param :query, desc: 'The search query'
       param :max_results, desc: 'Number of results to return (1-10, default 5)', required: false
 
+      attr_writer :turn_context
+
       def initialize(search_provider:, audit:)
         super()
         @search_provider = search_provider
         @audit = audit
         @turn_count = 0
+        @turn_context = nil
       end
 
       def reset_turn_count!
@@ -59,9 +62,14 @@ module Kodo
           detail: "query:#{query} results:#{results.length}"
         )
 
-        return "No results found for: #{query}" if results.empty?
+        if results.empty?
+          @turn_context&.web_fetched!
+          return "No results found for: #{query}"
+        end
 
-        format_results(results)
+        @turn_context&.web_fetched!
+
+        wrap_as_untrusted(query, format_results(results))
       rescue Kodo::Error => e
         e.message
       end
@@ -71,6 +79,19 @@ module Kodo
       end
 
       private
+
+      def wrap_as_untrusted(query, text)
+        nonce = @turn_context&.nonce || 'no-nonce'
+        safe_text = text.gsub(nonce, '[nonce-collision-redacted]')
+        <<~CONTENT
+          [WEB:#{nonce}:START]
+          Search query: #{query}
+          ---
+          #{safe_text}
+          ---
+          [WEB:#{nonce}:END]
+        CONTENT
+      end
 
       def format_results(results)
         results.each_with_index.map do |r, i|

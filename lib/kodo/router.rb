@@ -39,6 +39,10 @@ module Kodo
     def route(message, channel:)
       chat_id = message.metadata[:chat_id] || message.metadata['chat_id']
 
+      # Fresh per-turn context: nonce for content isolation, web_fetched flag
+      turn_context = Web::TurnContext.new
+      set_turn_context(turn_context)
+
       # Set channel context on SetReminder so it knows where to deliver
       set_reminder_context(channel.channel_id, chat_id)
 
@@ -56,7 +60,8 @@ module Kodo
       system_prompt = @prompt_assembler.assemble(
         runtime_context: {
           model: Kodo.config.llm_model,
-          channels: channel.channel_id
+          channels: channel.channel_id,
+          web_nonce: turn_context.nonce
         },
         knowledge: knowledge_text,
         capabilities: build_capabilities_from_tools
@@ -124,10 +129,12 @@ module Kodo
         tools << Tools::DismissReminder.new(reminders: @reminders, audit: @audit)
       end
 
-      # Web tools (require search provider)
-      if @search_provider
+      # URL fetching (no API key required)
+      tools << Tools::FetchUrl.new(audit: @audit) if Kodo.config.web_fetch_url_enabled?
+
+      # Web search (requires search provider API key)
+      if @search_provider && Kodo.config.web_search_enabled?
         tools << Tools::WebSearch.new(search_provider: @search_provider, audit: @audit)
-        tools << Tools::FetchUrl.new(audit: @audit)
       end
 
       # Secret storage tool (requires broker)
@@ -179,6 +186,12 @@ module Kodo
           tool.channel_id = channel_id
           tool.chat_id = chat_id
         end
+      end
+    end
+
+    def set_turn_context(turn_context)
+      @tools.each do |tool|
+        tool.turn_context = turn_context if tool.respond_to?(:turn_context=)
       end
     end
   end

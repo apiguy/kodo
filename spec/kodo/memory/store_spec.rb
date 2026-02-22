@@ -8,6 +8,13 @@ RSpec.describe Kodo::Memory::Store, :tmpdir do
     described_class.new
   end
 
+  before do
+    # Prevent real LLM API calls in all store tests. Regex-based redaction
+    # (SENSITIVE_PATTERNS) still runs normally via redact_smart — only the
+    # LLM fallback is stubbed to return the text unchanged.
+    allow(Kodo::Memory::Redactor).to receive(:redact_with_llm) { |text| text }
+  end
+
   describe "#append" do
     it "adds a message to a conversation" do
       store.append("chat1", role: "user", content: "hello")

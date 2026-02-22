@@ -51,3 +51,13 @@ memory:
 logging:
   level: info
   audit: true
+
+# Web security settings (applies to web_search and fetch_url tools)
+web:
+  fetch_url_enabled: true
+  web_search_enabled: true
+  injection_scan: true    # pre-screen fetched content and log suspicious signals
+  audit_urls: true        # log full URL in audit (set false for privacy-sensitive deployments)
+  fetch_blocklist: []     # e.g. ["pastebin.com", "*.pastebin.com"]
+  fetch_allowlist: []     # if non-empty, only these domains are allowed
+  ssrf_bypass_hosts: []   # DEV ONLY: skip SSRF checks for these hosts (e.g. ["localhost", "127.0.0.1"])
