@@ -15,6 +15,28 @@ RSpec.describe Kodo::LLM do
     allow(Kodo).to receive(:config).and_return(config)
   end
 
+  describe ".configure!" do
+    it "configures providers via broker when broker is provided" do
+      broker = instance_double(Kodo::Secrets::Broker)
+      allow(broker).to receive(:fetch).and_return(nil)
+      allow(broker).to receive(:fetch).with("anthropic_api_key", requestor: "llm").and_return("sk-ant-test")
+      allow(RubyLLM.models).to receive(:refresh!)
+
+      described_class.configure!(config, broker: broker)
+
+      expect(broker).to have_received(:fetch).with("anthropic_api_key", requestor: "llm")
+    end
+
+    it "falls back to config when no broker is provided" do
+      allow(config).to receive(:llm_api_keys).and_return({ "anthropic" => "sk-ant-from-env" })
+      allow(RubyLLM.models).to receive(:refresh!)
+
+      described_class.configure!(config)
+
+      expect(config).to have_received(:llm_api_keys)
+    end
+  end
+
   describe ".utility_chat" do
     it "creates a chat with the configured utility model" do
       chat = instance_double("RubyLLM::Chat")

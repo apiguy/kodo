@@ -2,27 +2,51 @@
 
 module Kodo
   class Router
-    def initialize(memory:, audit:, prompt_assembler: nil, knowledge: nil, reminders: nil)
+    TOOL_CLASSES = [
+      Tools::GetCurrentTime,
+      Tools::RememberFact,
+      Tools::ForgetFact,
+      Tools::RecallFacts,
+      Tools::UpdateFact,
+      Tools::SetReminder,
+      Tools::ListReminders,
+      Tools::DismissReminder,
+      Tools::WebSearch,
+      Tools::FetchUrl,
+      Tools::StoreSecret
+    ].freeze
+
+    def initialize(memory:, audit:, prompt_assembler: nil, knowledge: nil, reminders: nil,
+                   search_provider: nil, broker: nil, on_secret_stored: nil)
       @memory = memory
       @audit = audit
       @prompt_assembler = prompt_assembler || PromptAssembler.new
       @knowledge = knowledge
       @reminders = reminders
+      @search_provider = search_provider
+      @broker = broker
+      @on_secret_stored = on_secret_stored
+      @tools = build_tools
+    end
+
+    # Rebuild the tool list (e.g. after a new secret activates a provider)
+    def reload_tools!(search_provider: nil)
+      @search_provider = search_provider if search_provider
       @tools = build_tools
     end
 
     # Process an incoming message and return a response message
     def route(message, channel:)
-      chat_id = message.metadata[:chat_id] || message.metadata["chat_id"]
+      chat_id = message.metadata[:chat_id] || message.metadata['chat_id']
 
       # Set channel context on SetReminder so it knows where to deliver
       set_reminder_context(channel.channel_id, chat_id)
 
       # Store the user's message
-      @memory.append(chat_id, role: "user", content: message.content)
+      @memory.append(chat_id, role: 'user', content: message.content)
 
       @audit.log(
-        event: "message_received",
+        event: 'message_received',
         channel: message.channel_id,
         detail: "from:#{message.metadata[:sender_name] || 'user'} len:#{message.content.length}"
       )
@@ -34,7 +58,8 @@ module Kodo
           model: Kodo.config.llm_model,
           channels: channel.channel_id
         },
-        knowledge: knowledge_text
+        knowledge: knowledge_text,
+        capabilities: build_capabilities_from_tools
       )
 
       # Build a fresh RubyLLM chat with conversation history
@@ -57,10 +82,10 @@ module Kodo
       response = chat.ask(message.content)
       response_text = response.content
 
-      @memory.append(chat_id, role: "assistant", content: response_text)
+      @memory.append(chat_id, role: 'assistant', content: response_text)
 
       @audit.log(
-        event: "message_sent",
+        event: 'message_sent',
         channel: message.channel_id,
         detail: "len:#{response_text.length}"
       )
@@ -99,6 +124,15 @@ module Kodo
         tools << Tools::DismissReminder.new(reminders: @reminders, audit: @audit)
       end
 
+      # Web tools (require search provider)
+      if @search_provider
+        tools << Tools::WebSearch.new(search_provider: @search_provider, audit: @audit)
+        tools << Tools::FetchUrl.new(audit: @audit)
+      end
+
+      # Secret storage tool (requires broker)
+      tools << Tools::StoreSecret.new(broker: @broker, audit: @audit, on_secret_stored: @on_secret_stored) if @broker
+
       tools
     end
 
@@ -106,6 +140,37 @@ module Kodo
       @tools.each do |tool|
         tool.reset_turn_count! if tool.respond_to?(:reset_turn_count!)
       end
+    end
+
+    def build_capabilities_from_tools # rubocop:disable Metrics
+      active_tool_classes = @tools.map(&:class)
+      active_capability_names = active_tool_classes
+                                .select { |klass| klass.respond_to?(:capability_name) && klass.capability_name }
+                                .map(&:capability_name)
+                                .uniq
+      secret_storage_active = active_capability_names.include?('Secret Storage')
+
+      caps = {}
+      TOOL_CLASSES.each do |klass|
+        next unless klass.respond_to?(:capability_name) && klass.capability_name
+        next unless klass.respond_to?(:capability_primary) && klass.capability_primary
+
+        name = klass.capability_name
+        next if caps.key?(name)
+
+        enabled = active_capability_names.include?(name)
+        guidance = if enabled
+                     klass.enabled_guidance
+                   elsif name == 'Web Search' && secret_storage_active
+                     Tools::WebSearch::DISABLED_GUIDANCE_WITH_SECRET_STORAGE
+                   else
+                     klass.disabled_guidance
+                   end
+
+        caps[name] = { status: enabled ? :enabled : :disabled, guidance: guidance }
+      end
+
+      caps
     end
 
     def set_reminder_context(channel_id, chat_id)

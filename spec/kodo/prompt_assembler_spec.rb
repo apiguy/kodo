@@ -79,6 +79,73 @@ RSpec.describe Kodo::PromptAssembler, :tmpdir do
       expect(prompt).not_to include("Remembered Knowledge")
     end
 
+    it "includes capabilities section when provided" do
+      prompt = assembler.assemble(capabilities: {
+        'Web Search' => { status: :enabled, guidance: 'Search the web for current information.' }
+      })
+      expect(prompt).to include("Capabilities")
+      expect(prompt).to include("Web Search: enabled")
+    end
+
+    it "includes setup guidance for disabled capabilities" do
+      prompt = assembler.assemble(capabilities: {
+        'Web Search' => { status: :disabled, guidance: 'Set TAVILY_API_KEY to enable web search.' }
+      })
+      expect(prompt).to include("Web Search: not configured")
+      expect(prompt).to include("TAVILY_API_KEY")
+    end
+
+    it "does not include capabilities section when empty" do
+      prompt = assembler.assemble
+      expect(prompt).not_to include("Capabilities")
+    end
+
+    it "renders enabled guidance text" do
+      prompt = assembler.assemble(capabilities: {
+        'Knowledge' => { status: :enabled, guidance: 'Remember and recall facts.' }
+      })
+      expect(prompt).to include("Knowledge: enabled")
+      expect(prompt).to include("Remember and recall facts.")
+    end
+
+    it "renders disabled guidance text" do
+      prompt = assembler.assemble(capabilities: {
+        'Web Search' => { status: :disabled, guidance: 'Tavily setup instructions here.' }
+      })
+      expect(prompt).to include("Web Search: not configured")
+      expect(prompt).to include("Tavily setup instructions here.")
+    end
+
+    it "truncates guidance exceeding MAX_CAPABILITY_GUIDANCE_LENGTH" do
+      long_guidance = "x" * 600
+      prompt = assembler.assemble(capabilities: {
+        'Web Search' => { status: :enabled, guidance: long_guidance }
+      })
+      expect(prompt).to include("x" * 500)
+      expect(prompt).not_to include("x" * 501)
+    end
+
+    it "skips guidance when nil" do
+      prompt = assembler.assemble(capabilities: {
+        'Knowledge' => { status: :enabled, guidance: nil }
+      })
+      expect(prompt).to include("Knowledge: enabled")
+    end
+
+    it "includes missing-capability hint when any capability is disabled" do
+      prompt = assembler.assemble(capabilities: {
+        'Web Search' => { status: :disabled, guidance: nil }
+      })
+      expect(prompt).to include("benefit from a missing capability")
+    end
+
+    it "does not include missing-capability hint when all capabilities are enabled" do
+      prompt = assembler.assemble(capabilities: {
+        'Web Search' => { status: :enabled, guidance: nil }
+      })
+      expect(prompt).not_to include("benefit from a missing capability")
+    end
+
     it "places knowledge after user files and before runtime" do
       File.write(File.join(tmpdir, "user.md"), "User context here")
       knowledge_text = "Knowledge here"

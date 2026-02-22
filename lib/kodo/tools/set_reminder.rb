@@ -6,6 +6,12 @@ require "time"
 module Kodo
   module Tools
     class SetReminder < RubyLLM::Tool
+      extend PromptContributor
+
+      capability_name 'Reminders'
+      capability_primary true
+      enabled_guidance 'Set, list, and dismiss reminders. Reminders are delivered proactively when due.'
+
       MAX_PER_TURN = 3
       MAX_CONTENT_LENGTH = 500
 

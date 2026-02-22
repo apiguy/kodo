@@ -62,10 +62,10 @@ module Kodo
 
     # Files loaded in order, each with a section header
     PROMPT_FILES = [
-      { file: "persona.md",  header: "### Persona",            description: "personality and tone" },
-      { file: "user.md",     header: "### User Context",       description: "who the user is" },
-      { file: "pulse.md",    header: "### Pulse Instructions",  description: "what to notice during idle beats" },
-      { file: "origin.md",   header: "### Origin",             description: "first-run context" }
+      { file: 'persona.md',  header: '### Persona',            description: 'personality and tone' },
+      { file: 'user.md',     header: '### User Context',       description: 'who the user is' },
+      { file: 'pulse.md',    header: '### Pulse Instructions', description: 'what to notice during idle beats' },
+      { file: 'origin.md',   header: '### Origin', description: 'first-run context' }
     ].freeze
 
     def initialize(home_dir: nil)
@@ -73,7 +73,7 @@ module Kodo
     end
 
     # Assemble the full system prompt from invariants + user files + runtime context
-    def assemble(runtime_context: {}, knowledge: nil)
+    def assemble(runtime_context: {}, knowledge: nil, capabilities: {})
       parts = [SYSTEM_INVARIANTS]
       parts << CONTEXT_SEPARATOR
 
@@ -86,14 +86,13 @@ module Kodo
       end
 
       # Inject knowledge layer between user context and runtime
-      if knowledge
-        parts << build_knowledge_section(knowledge)
-      end
+      parts << build_knowledge_section(knowledge) if knowledge
+
+      # Inject capabilities section so the LLM knows what it can and can't do
+      parts << build_capabilities_section(capabilities) if capabilities.any?
 
       # Inject runtime context (model, channels, timestamp)
-      if runtime_context.any?
-        parts << build_runtime_section(runtime_context)
-      end
+      parts << build_runtime_section(runtime_context) if runtime_context.any?
 
       parts.join("\n")
     end
@@ -103,30 +102,26 @@ module Kodo
       parts = [SYSTEM_INVARIANTS]
 
       # Only load pulse.md for heartbeat ticks
-      pulse_content = read_file("pulse.md")
-      if pulse_content
-        parts << "\n### Pulse Instructions\n\n#{pulse_content}"
-      else
-        parts << "\n_No pulse.md found. Default: check for new messages and respond._\n"
-      end
+      pulse_content = read_file('pulse.md')
+      parts << if pulse_content
+                 "\n### Pulse Instructions\n\n#{pulse_content}"
+               else
+                 "\n_No pulse.md found. Default: check for new messages and respond._\n"
+               end
 
-      if knowledge
-        parts << build_knowledge_section(knowledge)
-      end
+      parts << build_knowledge_section(knowledge) if knowledge
 
-      if runtime_context.any?
-        parts << build_runtime_section(runtime_context)
-      end
+      parts << build_runtime_section(runtime_context) if runtime_context.any?
 
       parts.join("\n")
     end
 
     # Create default prompt files in ~/.kodo/ if they don't exist
     def ensure_default_files!
-      write_default("persona.md", DEFAULT_PERSONA) unless File.exist?(file_path("persona.md"))
-      write_default("user.md", DEFAULT_USER) unless File.exist?(file_path("user.md"))
-      write_default("pulse.md", DEFAULT_PULSE) unless File.exist?(file_path("pulse.md"))
-      write_default("origin.md", DEFAULT_ORIGIN) unless File.exist?(file_path("origin.md"))
+      write_default('persona.md', DEFAULT_PERSONA) unless File.exist?(file_path('persona.md'))
+      write_default('user.md', DEFAULT_USER) unless File.exist?(file_path('user.md'))
+      write_default('pulse.md', DEFAULT_PULSE) unless File.exist?(file_path('pulse.md'))
+      write_default('origin.md', DEFAULT_ORIGIN) unless File.exist?(file_path('origin.md'))
     end
 
     private
@@ -168,6 +163,38 @@ module Kodo
 
     def build_knowledge_section(knowledge_text)
       "\n### Remembered Knowledge\n\n#{knowledge_text}"
+    end
+
+    MAX_CAPABILITY_GUIDANCE_LENGTH = 500
+
+    def build_capabilities_section(capabilities) # rubocop:disable Metrics
+      lines = ["\n### Capabilities"]
+
+      capabilities.each do |name, info|
+        label = info[:status] == :enabled ? 'enabled' : 'not configured'
+        lines << "- #{name}: #{label}"
+      end
+
+      if capabilities.each_value.any? { |info| info[:status] == :disabled }
+        lines << ''
+        lines << 'When the user asks something that would benefit from a missing capability, '
+        lines << 'let them know it exists and offer to help them set it up.'
+      end
+
+      append_guidance_blocks(lines, capabilities)
+
+      lines.join("\n")
+    end
+
+    def append_guidance_blocks(lines, capabilities)
+      capabilities.each_value do |info|
+        next unless info[:guidance]
+
+        text = info[:guidance]
+        text = text[0...MAX_CAPABILITY_GUIDANCE_LENGTH] if text.length > MAX_CAPABILITY_GUIDANCE_LENGTH
+        lines << ''
+        lines << text
+      end
     end
 
     def build_runtime_section(ctx)
@@ -212,11 +239,11 @@ module Kodo
       - Current projects or priorities
 
       <!-- Uncomment and fill in:
-      Name: 
-      Role: 
-      Timezone: 
-      Stack: 
-      Current focus: 
+      Name:#{' '}
+      Role:#{' '}
+      Timezone:#{' '}
+      Stack:#{' '}
+      Current focus:#{' '}
       -->
     MD
 

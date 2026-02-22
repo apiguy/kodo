@@ -1,32 +1,32 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-require_relative "../lib/kodo"
+require_relative '../lib/kodo'
 
 module Kodo
   class CLI
     COMMANDS = {
-      "start"     => "Start the Kodo daemon",
-      "chat"      => "Chat with Kodo directly in the terminal",
-      "memories"  => "List what Kodo remembers about you",
-      "reminders" => "List active reminders",
-      "status"    => "Show daemon status",
-      "version"   => "Show version",
-      "init"      => "Create default config and prompt files in ~/.kodo/",
-      "help"      => "Show this help"
+      'start' => 'Start the Kodo daemon',
+      'chat' => 'Chat with Kodo directly in the terminal',
+      'memories' => 'List what Kodo remembers about you',
+      'reminders' => 'List active reminders',
+      'status' => 'Show daemon status',
+      'version' => 'Show version',
+      'init' => 'Create default config and prompt files in ~/.kodo/',
+      'help' => 'Show this help'
     }.freeze
 
     def run(args = ARGV)
-      command = args.first || "help"
+      command = args.first || 'help'
 
       case command
-      when "start"     then start(args)
-      when "chat"      then chat
-      when "memories"  then memories
-      when "reminders" then reminders
-      when "init"      then init
-      when "version"   then puts "kodo v#{VERSION}"
-      when "status"    then status
+      when 'start'     then start(args)
+      when 'chat'      then chat
+      when 'memories'  then memories
+      when 'reminders' then reminders
+      when 'init'      then init
+      when 'version'   then puts "kodo v#{VERSION}"
+      when 'status'    then status
       else help
       end
     end
@@ -36,11 +36,9 @@ module Kodo
     def start(args)
       interval = nil
       args.each do |arg|
-        if arg.start_with?("--heartbeat-interval=")
-          interval = arg.split("=", 2).last.to_i
-        end
+        interval = arg.split('=', 2).last.to_i if arg.start_with?('--heartbeat-interval=')
       end
-      if (idx = args.index("--heartbeat-interval")) && !args[idx + 1]&.start_with?("--")
+      if (idx = args.index('--heartbeat-interval')) && !args[idx + 1]&.start_with?('--')
         interval = args[idx + 1]&.to_i
       end
 
@@ -48,28 +46,45 @@ module Kodo
       daemon.start!
     end
 
-    def chat
+    def chat # rubocop:disable Metrics/MethodLength
       Config.ensure_home_dir!
       assembler = PromptAssembler.new
       assembler.ensure_default_files!
-      LLM.configure!(Kodo.config)
 
       passphrase = Kodo.config.memory_encryption? ? Kodo.config.memory_passphrase : nil
-
-      puts "🥁 Kodo v#{VERSION} — direct chat mode"
-      puts "   Model: #{Kodo.config.llm_model}"
-      puts "   Type your message and press Enter. Ctrl+C to quit.\n\n"
 
       memory = Memory::Store.new(passphrase: passphrase)
       audit = Memory::Audit.new
       knowledge = Memory::Knowledge.new(passphrase: passphrase)
       reminder_store = Memory::Reminders.new(passphrase: passphrase)
+
+      secrets_store = Secrets::Store.new(passphrase: Kodo.config.secrets_passphrase)
+      broker = Secrets::Broker.new(store: secrets_store, audit: audit)
+      search_provider = resolve_chat_search_provider(broker)
+
+      LLM.configure!(Kodo.config, broker: broker)
+
+      puts "🥁 Kodo v#{VERSION} — direct chat mode"
+      puts "   Model: #{Kodo.config.llm_model}"
+      puts "   Type your message and press Enter. Ctrl+C to quit.\n\n"
+
+      router = nil
+
+      on_secret_stored = lambda do |_secret_name|
+        search_provider = resolve_chat_search_provider(broker)
+        router.reload_tools!(search_provider: search_provider)
+        LLM.configure!(Kodo.config, broker: broker)
+      end
+
       router = Router.new(
         memory: memory,
         audit: audit,
         prompt_assembler: assembler,
         knowledge: knowledge,
-        reminders: reminder_store
+        reminders: reminder_store,
+        search_provider: search_provider,
+        broker: broker,
+        on_secret_stored: on_secret_stored
       )
       console = Channels::Console.new
       console.connect!
@@ -80,10 +95,10 @@ module Kodo
         break if input.nil? || input.empty?
 
         message = Message.new(
-          channel_id: "console",
+          channel_id: 'console',
           sender: :user,
           content: input,
-          metadata: { chat_id: "console" }
+          metadata: { chat_id: 'console' }
         )
 
         response = with_spinner { router.route(message, channel: console) }
@@ -100,15 +115,15 @@ module Kodo
 
       active = knowledge.all_active
       if active.empty?
-        puts "Kodo has no stored memories yet."
-        puts "Chat with Kodo and it will remember things you tell it."
+        puts 'Kodo has no stored memories yet.'
+        puts 'Chat with Kodo and it will remember things you tell it.'
         return
       end
 
       puts "Kodo's memories (#{active.length} facts):"
-      puts ""
+      puts ''
 
-      grouped = active.group_by { |f| f["category"] }
+      grouped = active.group_by { |f| f['category'] }
       Memory::Knowledge::VALID_CATEGORIES.each do |cat|
         facts = grouped[cat]
         next unless facts&.any?
@@ -118,7 +133,7 @@ module Kodo
           puts "    - #{f['content']}"
           puts "      id: #{f['id']}  source: #{f['source']}  #{f['created_at']}"
         end
-        puts ""
+        puts ''
       end
     end
 
@@ -127,20 +142,20 @@ module Kodo
       passphrase = Kodo.config.memory_encryption? ? Kodo.config.memory_passphrase : nil
       reminder_store = Memory::Reminders.new(passphrase: passphrase)
 
-      active = reminder_store.all_active.sort_by { |r| r["due_at"] }
+      active = reminder_store.all_active.sort_by { |r| r['due_at'] }
       if active.empty?
-        puts "No active reminders."
+        puts 'No active reminders.'
         return
       end
 
       puts "Active reminders (#{active.length}):"
-      puts ""
+      puts ''
 
       active.each do |r|
         puts "  - #{r['content']}"
         puts "    due: #{r['due_at']}  id: #{r['id']}"
       end
-      puts ""
+      puts ''
     end
 
     def init
@@ -148,64 +163,77 @@ module Kodo
       PromptAssembler.new.ensure_default_files!
 
       puts "✅ Kodo home directory: #{Kodo.home_dir}"
-      puts ""
-      puts "   Created files:"
-      puts "   📋 config.yml     — LLM provider and channel settings"
-      puts "   🎭 persona.md     — personality and tone (make Kodo yours)"
-      puts "   👤 user.md        — tell Kodo about yourself"
-      puts "   💓 pulse.md       — what to notice during idle beats"
-      puts "   🌱 origin.md      — first-run onboarding conversation"
-      puts ""
-      puts "   Quick start:"
-      puts "   1. Set an LLM API key (e.g. ANTHROPIC_API_KEY, OPENAI_API_KEY)"
-      puts "   2. Set TELEGRAM_BOT_TOKEN (get one from @BotFather on Telegram)"
-      puts "   3. Enable Telegram in ~/.kodo/config.yml"
+      puts ''
+      puts '   Created files:'
+      puts '   📋 config.yml     — LLM provider and channel settings'
+      puts '   🎭 persona.md     — personality and tone (make Kodo yours)'
+      puts '   👤 user.md        — tell Kodo about yourself'
+      puts '   💓 pulse.md       — what to notice during idle beats'
+      puts '   🌱 origin.md      — first-run onboarding conversation'
+      puts ''
+      puts '   Quick start:'
+      puts '   1. Set an LLM API key (e.g. ANTHROPIC_API_KEY, OPENAI_API_KEY)'
+      puts '   2. Set TELEGRAM_BOT_TOKEN (get one from @BotFather on Telegram)'
+      puts '   3. Enable Telegram in ~/.kodo/config.yml'
       puts "   4. Edit ~/.kodo/persona.md to customize Kodo's personality"
-      puts "   5. Run: kodo start"
-      puts ""
-      puts "   Supported LLM providers:"
-      puts "   Anthropic, OpenAI, Gemini, DeepSeek, Mistral, Ollama,"
-      puts "   OpenRouter, Perplexity, xAI, and any OpenAI-compatible API"
+      puts '   5. Run: kodo start'
+      puts ''
+      puts '   Supported LLM providers:'
+      puts '   Anthropic, OpenAI, Gemini, DeepSeek, Mistral, Ollama,'
+      puts '   OpenRouter, Perplexity, xAI, and any OpenAI-compatible API'
     end
 
     def status
       puts "🥁 Kodo v#{VERSION}"
-      puts ""
+      puts ''
       puts "   Home:   #{Kodo.home_dir}"
-      puts "   Config: #{File.exist?(Config.config_path) ? "✅" : "❌"} #{Config.config_path}"
-      puts ""
+      puts "   Config: #{File.exist?(Config.config_path) ? '✅' : '❌'} #{Config.config_path}"
+      puts ''
 
       # Prompt files
-      puts "   Prompt files:"
+      puts '   Prompt files:'
       %w[persona.md user.md pulse.md origin.md].each do |f|
         path = File.join(Kodo.home_dir, f)
-        status = File.exist?(path) ? "✅" : "  "
+        status = File.exist?(path) ? '✅' : '  '
         puts "   #{status} #{f}"
       end
-      puts ""
+      puts ''
 
       # Provider keys
-      puts "   LLM providers:"
+      puts '   LLM providers:'
       {
-        "ANTHROPIC_API_KEY"  => "Anthropic",
-        "OPENAI_API_KEY"     => "OpenAI",
-        "GEMINI_API_KEY"     => "Gemini",
-        "OLLAMA_API_BASE"    => "Ollama"
+        'ANTHROPIC_API_KEY' => 'Anthropic',
+        'OPENAI_API_KEY' => 'OpenAI',
+        'GEMINI_API_KEY' => 'Gemini',
+        'OLLAMA_API_BASE' => 'Ollama'
       }.each do |env, name|
-        s = ENV[env] ? "✅ set" : "  not set"
-        puts "   #{s.start_with?("✅") ? "✅" : "  "} #{name.ljust(12)} (#{env})"
+        s = ENV[env] ? '✅ set' : '  not set'
+        puts "   #{s.start_with?('✅') ? '✅' : '  '} #{name.ljust(12)} (#{env})"
       end
-      puts ""
+      puts ''
 
-      puts "   Telegram: #{ENV["TELEGRAM_BOT_TOKEN"] ? "✅ set" : "❌ TELEGRAM_BOT_TOKEN missing"}"
+      puts "   Telegram: #{ENV['TELEGRAM_BOT_TOKEN'] ? '✅ set' : '❌ TELEGRAM_BOT_TOKEN missing'}"
+    end
+
+    def resolve_chat_search_provider(broker)
+      # Try broker first (handles both stored secrets and env vars)
+      if broker.available?('tavily_api_key')
+        api_key = broker.fetch('tavily_api_key', requestor: 'search')
+        return Search::Tavily.new(api_key: api_key) if api_key
+      end
+
+      # Fall back to config-based resolution
+      Kodo.config.search_provider_instance
+    rescue Kodo::Error
+      nil
     end
 
     def with_spinner
-      frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+      frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
       done = false
       spinner = Thread.new do
         i = 0
-        while !done
+        until done
           print "\r\e[36m#{frames[i % frames.length]} thinking...\e[0m"
           i += 1
           sleep 0.1
@@ -221,21 +249,21 @@ module Kodo
 
     def help
       puts "🥁 Kodo v#{VERSION} — your personal AI agent"
-      puts ""
-      puts "Usage: kodo <command> [options]"
-      puts ""
+      puts ''
+      puts 'Usage: kodo <command> [options]'
+      puts ''
       COMMANDS.each do |cmd, desc|
-        puts "  %-12s %s" % [cmd, desc]
+        puts format('  %-12s %s', cmd, desc)
       end
-      puts ""
-      puts "Options:"
-      puts "  --heartbeat-interval=N   Set heartbeat interval in seconds (default: 60)"
-      puts ""
-      puts "Prompt files in ~/.kodo/:"
+      puts ''
+      puts 'Options:'
+      puts '  --heartbeat-interval=N   Set heartbeat interval in seconds (default: 60)'
+      puts ''
+      puts 'Prompt files in ~/.kodo/:'
       puts "  persona.md    Your agent's personality and tone"
-      puts "  user.md       Tell Kodo about yourself"
-      puts "  pulse.md      What to notice during idle beats"
-      puts "  origin.md     First-run onboarding conversation"
+      puts '  user.md       Tell Kodo about yourself'
+      puts '  pulse.md      What to notice during idle beats'
+      puts '  origin.md     First-run onboarding conversation'
     end
   end
 end

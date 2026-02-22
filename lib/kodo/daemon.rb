@@ -14,12 +14,17 @@ module Kodo
       @knowledge = Memory::Knowledge.new(passphrase: passphrase)
       @reminders = Memory::Reminders.new(passphrase: passphrase)
       @prompt_assembler = PromptAssembler.new
+      @search_provider = resolve_search_provider
+      @broker = build_broker
       @router = Router.new(
         memory: @memory,
         audit: @audit,
         prompt_assembler: @prompt_assembler,
         knowledge: @knowledge,
-        reminders: @reminders
+        reminders: @reminders,
+        search_provider: @search_provider,
+        broker: @broker,
+        on_secret_stored: method(:on_secret_stored)
       )
       @channels = []
     end
@@ -36,13 +41,13 @@ module Kodo
       # Log which prompt files were found
       %w[persona.md user.md pulse.md origin.md].each do |f|
         path = File.join(Kodo.home_dir, f)
-        status = File.exist?(path) ? "+" : " "
+        status = File.exist?(path) ? '+' : ' '
         Kodo.logger.info("   #{status} #{f}")
       end
 
-      if @config.memory_encryption?
-        Kodo.logger.info("   Memory encryption: enabled")
-      end
+      Kodo.logger.info('   Memory encryption: enabled') if @config.memory_encryption?
+
+      Kodo.logger.info("   Search: #{@config.search_provider}") if @search_provider
 
       Kodo.logger.info("   Knowledge facts: #{@knowledge.count}")
       Kodo.logger.info("   Active reminders: #{@reminders.active_count}")
@@ -51,26 +56,53 @@ module Kodo
     end
 
     def stop!
-      Kodo.logger.info("Kodo shutting down...")
+      Kodo.logger.info('Kodo shutting down...')
       @heartbeat&.stop!
       @channels.each(&:disconnect!)
-      Kodo.logger.info("Goodbye.")
+      Kodo.logger.info('Goodbye.')
     end
 
     private
+
+    def build_broker
+      secrets_store = Secrets::Store.new(passphrase: @config.secrets_passphrase)
+      Secrets::Broker.new(store: secrets_store, audit: @audit)
+    end
+
+    def on_secret_stored(_secret_name)
+      rebuild_search_provider!
+      @router.reload_tools!(search_provider: @search_provider)
+      LLM.configure!(config, broker: @broker)
+    end
+
+    def rebuild_search_provider!
+      return unless @broker.available?('tavily_api_key')
+
+      api_key = @broker.fetch('tavily_api_key', requestor: 'search')
+      @search_provider = Search::Tavily.new(api_key: api_key) if api_key
+    rescue Kodo::Error => e
+      Kodo.logger.warn("Failed to rebuild search provider: #{e.message}")
+    end
+
+    def resolve_search_provider
+      @config.search_provider_instance
+    rescue Kodo::Error => e
+      Kodo.logger.warn("Search disabled: #{e.message}")
+      nil
+    end
 
     def resolve_passphrase
       return nil unless @config.memory_encryption?
 
       passphrase = @config.memory_passphrase
       unless passphrase
-        Kodo.logger.warn("Memory encryption enabled but no passphrase set. Data will be stored in plaintext.")
+        Kodo.logger.warn('Memory encryption enabled but no passphrase set. Data will be stored in plaintext.')
       end
       passphrase
     end
 
     def configure_llm!
-      LLM.configure!(config)
+      LLM.configure!(config, broker: @broker)
       Kodo.logger.info("   Model: #{config.llm_model}")
     end
 
@@ -81,9 +113,7 @@ module Kodo
         @channels << telegram
       end
 
-      if @channels.empty?
-        Kodo.logger.warn("No channels configured! Enable at least one in ~/.kodo/config.yml")
-      end
+      Kodo.logger.warn('No channels configured! Enable at least one in ~/.kodo/config.yml') if @channels.empty?
 
       Kodo.logger.info("Connected #{@channels.length} channel(s)")
     end
@@ -97,8 +127,8 @@ module Kodo
         interval: @heartbeat_interval
       )
 
-      trap("INT") { stop! }
-      trap("TERM") { stop! }
+      trap('INT') { stop! }
+      trap('TERM') { stop! }
 
       @heartbeat.start!
     end

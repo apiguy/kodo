@@ -5,6 +5,10 @@ require "ruby_llm"
 module Kodo
   module Tools
     class RecallFacts < RubyLLM::Tool
+      extend PromptContributor
+
+      capability_name 'Knowledge'
+
       description "Search your knowledge store for facts about the user. " \
                   "Use this when you need to look up specific information, especially " \
                   "if the knowledge was truncated in your system prompt."

@@ -5,6 +5,10 @@ require "ruby_llm"
 module Kodo
   module Tools
     class ForgetFact < RubyLLM::Tool
+      extend PromptContributor
+
+      capability_name 'Knowledge'
+
       description "Forget a previously remembered fact. Use this when the user asks you " \
                   "to forget something or when information is outdated."
 

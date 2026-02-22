@@ -5,6 +5,10 @@ require "ruby_llm"
 module Kodo
   module Tools
     class DismissReminder < RubyLLM::Tool
+      extend PromptContributor
+
+      capability_name 'Reminders'
+
       description "Dismiss (cancel) an active reminder by its ID."
 
       param :id, desc: "The UUID of the reminder to dismiss"

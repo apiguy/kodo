@@ -45,15 +45,25 @@ taking autonomous action.
 │       │   ├── encryption.rb  # AES-256-GCM encryption at rest
 │       │   ├── redactor.rb    # Sensitive data redaction (regex + LLM)
 │       │   └── audit.rb       # Action audit trail
+│       ├── search/
+│       │   ├── result.rb       # Search result value object
+│       │   └── tavily.rb       # Tavily web search adapter
+│       ├── secrets/
+│       │   ├── broker.rb       # Secret access control and dispatch
+│       │   └── store.rb        # Encrypted secret persistence
 │       └── tools/
-│           ├── get_current_time.rb  # LLM tool: current date/time
-│           ├── remember_fact.rb     # LLM tool: save a fact to knowledge
-│           ├── forget_fact.rb       # LLM tool: remove a fact from knowledge
-│           ├── recall_facts.rb      # LLM tool: search knowledge store
-│           ├── update_fact.rb       # LLM tool: update a fact in place
-│           ├── set_reminder.rb      # LLM tool: schedule a reminder
-│           ├── list_reminders.rb    # LLM tool: list active reminders
-│           └── dismiss_reminder.rb  # LLM tool: cancel a reminder
+│           ├── prompt_contributor.rb # Mixin: tools declare capability metadata
+│           ├── get_current_time.rb   # LLM tool: current date/time
+│           ├── remember_fact.rb      # LLM tool: save a fact to knowledge
+│           ├── forget_fact.rb        # LLM tool: remove a fact from knowledge
+│           ├── recall_facts.rb       # LLM tool: search knowledge store
+│           ├── update_fact.rb        # LLM tool: update a fact in place
+│           ├── set_reminder.rb       # LLM tool: schedule a reminder
+│           ├── list_reminders.rb     # LLM tool: list active reminders
+│           ├── dismiss_reminder.rb   # LLM tool: cancel a reminder
+│           ├── web_search.rb         # LLM tool: search the web via Tavily
+│           ├── fetch_url.rb          # LLM tool: fetch and read a URL
+│           └── store_secret.rb       # LLM tool: store an API key securely
 ├── config/
 │   └── default.yml      # Default configuration
 └── spec/                # RSpec tests
@@ -114,7 +124,8 @@ ruby bin/kodo start
 - Test the heartbeat: `ruby bin/kodo start --heartbeat-interval=5` for rapid
   iteration
 - Add a new tool: create `lib/kodo/tools/your_tool.rb` extending `RubyLLM::Tool`,
-  accept dependencies via constructor injection, register it in `Router#build_tools`
+  `extend PromptContributor` and declare capability metadata, implement `#execute`
+  and `#name`, add the class to `Router::TOOL_CLASSES`, instantiate in `Router#build_tools`
 
 ## What NOT to do
 

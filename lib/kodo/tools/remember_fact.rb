@@ -5,6 +5,12 @@ require "ruby_llm"
 module Kodo
   module Tools
     class RememberFact < RubyLLM::Tool
+      extend PromptContributor
+
+      capability_name 'Knowledge'
+      capability_primary true
+      enabled_guidance 'Remember, recall, update, and forget facts about the user across sessions.'
+
       MAX_PER_TURN = 5
       MAX_CONTENT_LENGTH = 500
 

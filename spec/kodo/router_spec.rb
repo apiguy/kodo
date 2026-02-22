@@ -118,6 +118,30 @@ RSpec.describe Kodo::Router, :tmpdir do
       )
     end
 
+    it "includes Web Search as disabled capability when not configured" do
+      router.route(incoming_message, channel: channel)
+
+      expect(mock_chat).to have_received(:with_instructions).with(
+        a_string_including("Web Search: not configured")
+      )
+    end
+
+    it "includes disabled guidance for Web Search with env var instructions" do
+      router.route(incoming_message, channel: channel)
+
+      expect(mock_chat).to have_received(:with_instructions).with(
+        a_string_including("TAVILY_API_KEY")
+      )
+    end
+
+    it "includes Knowledge as enabled capability" do
+      router.route(incoming_message, channel: channel)
+
+      expect(mock_chat).to have_received(:with_instructions).with(
+        a_string_including("Knowledge: enabled")
+      )
+    end
+
     it "registers tools with the chat" do
       router.route(incoming_message, channel: channel)
 
@@ -158,6 +182,38 @@ RSpec.describe Kodo::Router, :tmpdir do
     end
   end
 
+  describe "with search provider" do
+    let(:search_provider) { instance_double(Kodo::Search::Tavily) }
+    let(:router) do
+      described_class.new(
+        memory: memory, audit: audit, prompt_assembler: assembler,
+        knowledge: knowledge, search_provider: search_provider
+      )
+    end
+
+    it "includes web search as enabled capability in prompt" do
+      router.route(incoming_message, channel: channel)
+
+      expect(mock_chat).to have_received(:with_instructions).with(
+        a_string_including("Web Search: enabled")
+      )
+    end
+
+    it "registers web search and fetch_url tools" do
+      router.route(incoming_message, channel: channel)
+
+      expect(mock_chat).to have_received(:with_tools).with(
+        an_instance_of(Kodo::Tools::GetCurrentTime),
+        an_instance_of(Kodo::Tools::RememberFact),
+        an_instance_of(Kodo::Tools::ForgetFact),
+        an_instance_of(Kodo::Tools::RecallFacts),
+        an_instance_of(Kodo::Tools::UpdateFact),
+        an_instance_of(Kodo::Tools::WebSearch),
+        an_instance_of(Kodo::Tools::FetchUrl)
+      )
+    end
+  end
+
   describe "with reminders store" do
     let(:reminders) do
       FileUtils.mkdir_p(File.join(tmpdir, "memory", "reminders"))
@@ -182,6 +238,115 @@ RSpec.describe Kodo::Router, :tmpdir do
         an_instance_of(Kodo::Tools::SetReminder),
         an_instance_of(Kodo::Tools::ListReminders),
         an_instance_of(Kodo::Tools::DismissReminder)
+      )
+    end
+
+    it "includes Reminders as enabled capability" do
+      router.route(incoming_message, channel: channel)
+
+      expect(mock_chat).to have_received(:with_instructions).with(
+        a_string_including("Reminders: enabled")
+      )
+    end
+  end
+
+  describe "with broker" do
+    let(:secrets_store) do
+      Kodo::Secrets::Store.new(passphrase: "test", secrets_dir: tmpdir)
+    end
+    let(:broker) { Kodo::Secrets::Broker.new(store: secrets_store, audit: audit) }
+    let(:router) do
+      described_class.new(
+        memory: memory, audit: audit, prompt_assembler: assembler,
+        knowledge: knowledge, broker: broker
+      )
+    end
+
+    it "registers StoreSecret tool when broker is present" do
+      router.route(incoming_message, channel: channel)
+
+      expect(mock_chat).to have_received(:with_tools).with(
+        an_instance_of(Kodo::Tools::GetCurrentTime),
+        an_instance_of(Kodo::Tools::RememberFact),
+        an_instance_of(Kodo::Tools::ForgetFact),
+        an_instance_of(Kodo::Tools::RecallFacts),
+        an_instance_of(Kodo::Tools::UpdateFact),
+        an_instance_of(Kodo::Tools::StoreSecret)
+      )
+    end
+
+    it "includes Secret Storage as enabled capability" do
+      router.route(incoming_message, channel: channel)
+
+      expect(mock_chat).to have_received(:with_instructions).with(
+        a_string_including("Secret Storage: enabled")
+      )
+    end
+
+    it "includes store_secret guidance in prompt" do
+      router.route(incoming_message, channel: channel)
+
+      expect(mock_chat).to have_received(:with_instructions).with(
+        a_string_including("store_secret")
+      )
+    end
+
+    it "uses disabled_guidance_with_secret_storage for Web Search when broker is present" do
+      router.route(incoming_message, channel: channel)
+
+      expect(mock_chat).to have_received(:with_instructions).with(
+        a_string_including("paste the key right here")
+      )
+    end
+
+    it "on_secret_stored callback can reload_tools! on its own router" do
+      search_provider = instance_double(Kodo::Search::Tavily)
+      callback_router = nil
+
+      on_secret_stored = lambda do |_secret_name|
+        callback_router.reload_tools!(search_provider: search_provider)
+      end
+
+      callback_router = described_class.new(
+        memory: memory, audit: audit, prompt_assembler: assembler,
+        knowledge: knowledge, broker: broker,
+        on_secret_stored: on_secret_stored
+      )
+
+      # Simulate the callback firing (as StoreSecret#execute would)
+      on_secret_stored.call("tavily_api_key")
+
+      # After reload, routing should use the new search tools
+      callback_router.route(incoming_message, channel: channel)
+
+      expect(mock_chat).to have_received(:with_tools).with(
+        an_instance_of(Kodo::Tools::GetCurrentTime),
+        an_instance_of(Kodo::Tools::RememberFact),
+        an_instance_of(Kodo::Tools::ForgetFact),
+        an_instance_of(Kodo::Tools::RecallFacts),
+        an_instance_of(Kodo::Tools::UpdateFact),
+        an_instance_of(Kodo::Tools::WebSearch),
+        an_instance_of(Kodo::Tools::FetchUrl),
+        an_instance_of(Kodo::Tools::StoreSecret)
+      )
+    end
+  end
+
+  describe "#reload_tools!" do
+    let(:search_provider) { instance_double(Kodo::Search::Tavily) }
+
+    it "rebuilds tools with a new search provider" do
+      router.reload_tools!(search_provider: search_provider)
+      router.route(incoming_message, channel: channel)
+
+      expect(mock_chat).to have_received(:with_tools).with(
+        an_instance_of(Kodo::Tools::GetCurrentTime),
+        an_instance_of(Kodo::Tools::RememberFact),
+        an_instance_of(Kodo::Tools::ForgetFact),
+        an_instance_of(Kodo::Tools::RecallFacts),
+        an_instance_of(Kodo::Tools::UpdateFact),
+        an_instance_of(Kodo::Tools::WebSearch),
+        an_instance_of(Kodo::Tools::FetchUrl)
       )
     end
   end

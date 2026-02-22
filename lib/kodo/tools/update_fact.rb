@@ -5,6 +5,10 @@ require "ruby_llm"
 module Kodo
   module Tools
     class UpdateFact < RubyLLM::Tool
+      extend PromptContributor
+
+      capability_name 'Knowledge'
+
       MAX_PER_TURN = 5
       MAX_CONTENT_LENGTH = 500
 

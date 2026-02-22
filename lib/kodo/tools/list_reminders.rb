@@ -5,6 +5,10 @@ require "ruby_llm"
 module Kodo
   module Tools
     class ListReminders < RubyLLM::Tool
+      extend PromptContributor
+
+      capability_name 'Reminders'
+
       description "List all active reminders, sorted by due time."
 
       def initialize(reminders:, audit:)

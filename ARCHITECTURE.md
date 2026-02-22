@@ -201,13 +201,28 @@ injection. The router registers tools based on which stores are available.
 - `list_reminders` — show all active reminders sorted by due time
 - `dismiss_reminder` — cancel a reminder by ID
 
-Tools that mutate state (remember, update_fact, set_reminder) enforce rate
-limits per turn, content length caps, and sensitive data filtering via the
-Redactor. The heartbeat delivers due reminders proactively.
+**Web search tools** (require configured search provider):
+- `web_search` — search the web via Tavily (rate-limited, 3/turn)
+- `fetch_url` — fetch and extract text from a URL (SSRF-protected)
+
+**Secret storage tool** (require secrets broker):
+- `store_secret` — securely store an API key and activate it immediately
+  without a restart; validates known key formats before storing
+
+Tools that mutate state (remember, update_fact, set_reminder, store_secret)
+enforce rate limits per turn, content length caps, and sensitive data
+filtering via the Redactor. The heartbeat delivers due reminders proactively.
+
+Each tool can optionally `extend PromptContributor` to declare its own
+capability metadata (name, enabled/disabled guidance). The Router reads these
+declarations to build the capabilities section of the system prompt — adding
+a new tool only requires the tool file, one line in `TOOL_CLASSES`, and one
+line in `build_tools`.
 
 **Adding a new tool:** Create a class in `lib/kodo/tools/` extending
-`RubyLLM::Tool`, accept dependencies via `initialize`, implement `#execute`
-and `#name`, then register it in `Router#build_tools`.
+`RubyLLM::Tool`, `extend PromptContributor` and declare `capability_name` /
+`enabled_guidance` if applicable, implement `#execute` and `#name`, add the
+class to `Router::TOOL_CLASSES`, and instantiate it in `Router#build_tools`.
 
 ### Message Types
 
@@ -267,7 +282,10 @@ logging:
 - Conversation memory (file-based, encrypted at rest)
 - Knowledge store (long-term facts with remember/forget/recall/update tools)
 - Reminders with proactive heartbeat delivery
-- 8 LLM tools (time, knowledge CRUD, reminders CRUD)
+- 11 LLM tools (time, knowledge CRUD, reminders CRUD, web search, secret storage)
+- Web search via Tavily (SSRF-protected URL fetching, rate limiting)
+- Encrypted secret storage with live activation (no restart required)
+- Tool-declared prompt context via `PromptContributor` mixin
 - Sensitive data redaction (regex + LLM-assisted)
 - Audit logging
 - CLI direct chat with thinking spinner (`kodo chat`)

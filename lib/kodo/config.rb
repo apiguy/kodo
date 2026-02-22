@@ -1,48 +1,55 @@
 # frozen_string_literal: true
 
-require "yaml"
-require "fileutils"
+require 'yaml'
+require 'fileutils'
+require 'securerandom'
 
 module Kodo
   class Config
     # Map of Kodo config key → RubyLLM config setter name
     PROVIDER_KEY_MAP = {
-      "anthropic"  => "anthropic",
-      "openai"     => "openai",
-      "gemini"     => "gemini",
-      "deepseek"   => "deepseek",
-      "mistral"    => "mistral",
-      "openrouter" => "openrouter",
-      "perplexity" => "perplexity",
-      "xai"        => "xai"
+      'anthropic' => 'anthropic',
+      'openai' => 'openai',
+      'gemini' => 'gemini',
+      'deepseek' => 'deepseek',
+      'mistral' => 'mistral',
+      'openrouter' => 'openrouter',
+      'perplexity' => 'perplexity',
+      'xai' => 'xai'
     }.freeze
 
     DEFAULTS = {
-      "daemon" => {
-        "port" => 7377,
-        "heartbeat_interval" => 60
+      'daemon' => {
+        'port' => 7377,
+        'heartbeat_interval' => 60
       },
-      "llm" => {
-        "model" => "claude-sonnet-4-6",
-        "utility_model" => "claude-haiku-4-5-20251001",
-        "providers" => {
-          "anthropic" => { "api_key_env" => "ANTHROPIC_API_KEY" }
+      'llm' => {
+        'model' => 'claude-sonnet-4-6',
+        'utility_model' => 'claude-haiku-4-5-20251001',
+        'providers' => {
+          'anthropic' => { 'api_key_env' => 'ANTHROPIC_API_KEY' }
         }
       },
-      "channels" => {
-        "telegram" => {
-          "enabled" => false,
-          "bot_token_env" => "TELEGRAM_BOT_TOKEN"
+      'channels' => {
+        'telegram' => {
+          'enabled' => false,
+          'bot_token_env' => 'TELEGRAM_BOT_TOKEN'
         }
       },
-      "memory" => {
-        "encryption" => false,
-        "passphrase_env" => "KODO_PASSPHRASE",
-        "store" => "file"
+      'memory' => {
+        'encryption' => false,
+        'passphrase_env' => 'KODO_PASSPHRASE',
+        'store' => 'file'
       },
-      "logging" => {
-        "level" => "info",
-        "audit" => true
+      'search' => {
+        'provider' => nil,
+        'providers' => {
+          'tavily' => { 'api_key_env' => 'TAVILY_API_KEY' }
+        }
+      },
+      'logging' => {
+        'level' => 'info',
+        'audit' => true
       }
     }.freeze
 
@@ -61,23 +68,23 @@ module Kodo
       end
 
       def config_path
-        File.join(Kodo.home_dir, "config.yml")
+        File.join(Kodo.home_dir, 'config.yml')
       end
 
       def ensure_home_dir!
         dirs = [
           Kodo.home_dir,
-          File.join(Kodo.home_dir, "memory", "conversations"),
-          File.join(Kodo.home_dir, "memory", "knowledge"),
-          File.join(Kodo.home_dir, "memory", "reminders"),
-          File.join(Kodo.home_dir, "memory", "audit"),
-          File.join(Kodo.home_dir, "skills")
+          File.join(Kodo.home_dir, 'memory', 'conversations'),
+          File.join(Kodo.home_dir, 'memory', 'knowledge'),
+          File.join(Kodo.home_dir, 'memory', 'reminders'),
+          File.join(Kodo.home_dir, 'memory', 'audit'),
+          File.join(Kodo.home_dir, 'skills')
         ]
         dirs.each { |d| FileUtils.mkdir_p(d) }
 
-        unless File.exist?(config_path)
-          File.write(config_path, YAML.dump(DEFAULTS))
-        end
+        return if File.exist?(config_path)
+
+        File.write(config_path, YAML.dump(DEFAULTS))
       end
 
       private
@@ -94,20 +101,20 @@ module Kodo
     end
 
     # --- Daemon ---
-    def port               = data.dig("daemon", "port")
-    def heartbeat_interval = data.dig("daemon", "heartbeat_interval")
+    def port               = data.dig('daemon', 'port')
+    def heartbeat_interval = data.dig('daemon', 'heartbeat_interval')
 
     # --- LLM ---
-    def llm_model = data.dig("llm", "model")
-    def utility_model = data.dig("llm", "utility_model") || llm_model
+    def llm_model = data.dig('llm', 'model')
+    def utility_model = data.dig('llm', 'utility_model') || llm_model
 
     # Returns a hash of { "provider_name" => "actual_api_key" } for all configured providers
     def llm_api_keys
-      providers = data.dig("llm", "providers") || {}
+      providers = data.dig('llm', 'providers') || {}
       keys = {}
 
       providers.each do |provider, settings|
-        env_var = settings["api_key_env"]
+        env_var = settings['api_key_env']
         next unless env_var
 
         key = ENV[env_var]
@@ -117,23 +124,21 @@ module Kodo
         end
       end
 
-      if keys.empty?
-        raise Error, "No LLM API keys found. Set at least one provider key (e.g. ANTHROPIC_API_KEY)"
-      end
+      raise Error, 'No LLM API keys found. Set at least one provider key (e.g. ANTHROPIC_API_KEY)' if keys.empty?
 
       keys
     end
 
     # Optional: Ollama base URL for local models
     def ollama_api_base
-      data.dig("llm", "providers", "ollama", "api_base") || ENV["OLLAMA_API_BASE"]
+      data.dig('llm', 'providers', 'ollama', 'api_base') || ENV['OLLAMA_API_BASE']
     end
 
     # --- Memory / Encryption ---
-    def memory_encryption? = data.dig("memory", "encryption") == true
+    def memory_encryption? = data.dig('memory', 'encryption') == true
 
     def memory_passphrase_env
-      data.dig("memory", "passphrase_env") || "KODO_PASSPHRASE"
+      data.dig('memory', 'passphrase_env') || 'KODO_PASSPHRASE'
     end
 
     def memory_passphrase
@@ -141,21 +146,72 @@ module Kodo
       if memory_encryption? && (passphrase.nil? || passphrase.empty?)
         raise Error, "Memory encryption is enabled but #{memory_passphrase_env} is not set"
       end
+
       passphrase
     end
 
+    # --- Secrets ---
+    def secrets_passphrase
+      passphrase_path = File.join(Kodo.home_dir, '.passphrase')
+      if File.exist?(passphrase_path)
+        File.read(passphrase_path).strip
+      else
+        passphrase = SecureRandom.hex(32)
+        FileUtils.mkdir_p(Kodo.home_dir)
+        File.write(passphrase_path, passphrase)
+        File.chmod(0o600, passphrase_path)
+        passphrase
+      end
+    end
+
     # --- Logging ---
-    def log_level       = data.dig("logging", "level")&.to_sym || :info
-    def audit_enabled?  = data.dig("logging", "audit") != false
+    def log_level       = data.dig('logging', 'level')&.to_sym || :info
+    def audit_enabled?  = data.dig('logging', 'audit') != false
 
     # --- Channels ---
     def telegram_bot_token
-      env_var = data.dig("channels", "telegram", "bot_token_env")
+      env_var = data.dig('channels', 'telegram', 'bot_token_env')
       ENV.fetch(env_var) { raise Error, "Missing environment variable: #{env_var}" }
     end
 
     def telegram_enabled?
-      data.dig("channels", "telegram", "enabled") == true
+      data.dig('channels', 'telegram', 'enabled') == true
+    end
+
+    # --- Search ---
+    def search_provider
+      data.dig('search', 'provider')
+    end
+
+    def search_configured?
+      !search_provider.nil? && !search_provider.empty?
+    end
+
+    def search_api_key
+      return nil unless search_configured?
+
+      provider = search_provider
+      env_var = data.dig('search', 'providers', provider, 'api_key_env')
+      return nil unless env_var
+
+      ENV[env_var]
+    end
+
+    def search_provider_instance
+      return nil unless search_configured?
+
+      case search_provider
+      when 'tavily'
+        api_key = search_api_key
+        unless api_key
+          raise Error,
+                "Tavily API key not set (#{data.dig('search', 'providers', 'tavily', 'api_key_env')})"
+        end
+
+        Search::Tavily.new(api_key: api_key)
+      else
+        raise Error, "Unknown search provider: #{search_provider}"
+      end
     end
   end
 end

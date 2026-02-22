@@ -35,6 +35,14 @@ channels:
     enabled: false
     bot_token_env: TELEGRAM_BOT_TOKEN
 
+# Web search — enables web_search and fetch_url tools.
+# Disabled by default. Set provider to enable.
+# search:
+#   provider: tavily
+#   providers:
+#     tavily:
+#       api_key_env: TAVILY_API_KEY
+
 memory:
   encryption: false
   passphrase_env: KODO_PASSPHRASE

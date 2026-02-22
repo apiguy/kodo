@@ -128,6 +128,116 @@ RSpec.describe Kodo::Config, :tmpdir do
     end
   end
 
+  describe "search accessors" do
+    it "#search_provider returns nil by default" do
+      expect(default_config.search_provider).to be_nil
+    end
+
+    it "#search_configured? returns false by default" do
+      expect(default_config.search_configured?).to be false
+    end
+
+    it "#search_configured? returns true when provider is set" do
+      config = described_class.new(
+        described_class::DEFAULTS.merge("search" => { "provider" => "tavily", "providers" => {} })
+      )
+      expect(config.search_configured?).to be true
+    end
+
+    it "#search_api_key reads from the configured env var" do
+      config = described_class.new(
+        described_class::DEFAULTS.merge(
+          "search" => {
+            "provider" => "tavily",
+            "providers" => { "tavily" => { "api_key_env" => "TAVILY_API_KEY" } }
+          }
+        )
+      )
+      allow(ENV).to receive(:[]).and_call_original
+      allow(ENV).to receive(:[]).with("TAVILY_API_KEY").and_return("tvly-test-123")
+
+      expect(config.search_api_key).to eq("tvly-test-123")
+    end
+
+    it "#search_api_key returns nil when search is not configured" do
+      expect(default_config.search_api_key).to be_nil
+    end
+
+    it "#search_provider_instance returns nil when not configured" do
+      expect(default_config.search_provider_instance).to be_nil
+    end
+
+    it "#search_provider_instance returns a Tavily adapter" do
+      config = described_class.new(
+        described_class::DEFAULTS.merge(
+          "search" => {
+            "provider" => "tavily",
+            "providers" => { "tavily" => { "api_key_env" => "TAVILY_API_KEY" } }
+          }
+        )
+      )
+      allow(ENV).to receive(:[]).and_call_original
+      allow(ENV).to receive(:[]).with("TAVILY_API_KEY").and_return("tvly-test-123")
+
+      expect(config.search_provider_instance).to be_a(Kodo::Search::Tavily)
+    end
+
+    it "#search_provider_instance raises when API key is missing" do
+      config = described_class.new(
+        described_class::DEFAULTS.merge(
+          "search" => {
+            "provider" => "tavily",
+            "providers" => { "tavily" => { "api_key_env" => "TAVILY_API_KEY" } }
+          }
+        )
+      )
+      allow(ENV).to receive(:[]).and_call_original
+      allow(ENV).to receive(:[]).with("TAVILY_API_KEY").and_return(nil)
+
+      expect { config.search_provider_instance }.to raise_error(Kodo::Error, /Tavily API key not set/)
+    end
+
+    it "#search_provider_instance raises for unknown provider" do
+      config = described_class.new(
+        described_class::DEFAULTS.merge("search" => { "provider" => "unknown", "providers" => {} })
+      )
+
+      expect { config.search_provider_instance }.to raise_error(Kodo::Error, /Unknown search provider/)
+    end
+  end
+
+  describe "#secrets_passphrase" do
+    it "generates a passphrase file on first call" do
+      home = File.join(tmpdir, ".kodo")
+      FileUtils.mkdir_p(home)
+      allow(Kodo).to receive(:home_dir).and_return(home)
+
+      passphrase = default_config.secrets_passphrase
+      expect(passphrase).to be_a(String)
+      expect(passphrase.length).to eq(64) # hex(32) = 64 chars
+      expect(File.exist?(File.join(home, ".passphrase"))).to be true
+    end
+
+    it "returns the same passphrase on subsequent calls" do
+      home = File.join(tmpdir, ".kodo")
+      FileUtils.mkdir_p(home)
+      allow(Kodo).to receive(:home_dir).and_return(home)
+
+      first = default_config.secrets_passphrase
+      second = default_config.secrets_passphrase
+      expect(first).to eq(second)
+    end
+
+    it "reads an existing passphrase file" do
+      home = File.join(tmpdir, ".kodo")
+      FileUtils.mkdir_p(home)
+      File.write(File.join(home, ".passphrase"), "my-existing-passphrase")
+      allow(Kodo).to receive(:home_dir).and_return(home)
+
+      expect(default_config.secrets_passphrase).to eq("my-existing-passphrase")
+    end
+  end
+
   describe ".ensure_home_dir!" do
     it "creates home directory structure" do
       allow(Kodo).to receive(:home_dir).and_return(File.join(tmpdir, ".kodo"))
