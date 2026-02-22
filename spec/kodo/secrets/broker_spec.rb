@@ -117,6 +117,36 @@ RSpec.describe Kodo::Secrets::Broker, :tmpdir do
     end
   end
 
+  describe "#sensitive_values" do
+    it "returns values from the store" do
+      secrets_store.put("tavily_api_key", "tvly-abc123")
+      expect(broker.sensitive_values).to include("tvly-abc123")
+    end
+
+    it "returns values from env vars" do
+      allow(ENV).to receive(:[]).and_call_original
+      allow(ENV).to receive(:[]).with("ANTHROPIC_API_KEY").and_return("sk-ant-from-env")
+
+      expect(broker.sensitive_values).to include("sk-ant-from-env")
+    end
+
+    it "prefers store over env when both present" do
+      secrets_store.put("tavily_api_key", "tvly-from-store")
+      allow(ENV).to receive(:[]).and_call_original
+      allow(ENV).to receive(:[]).with("TAVILY_API_KEY").and_return("tvly-from-env")
+
+      values = broker.sensitive_values
+      expect(values).to include("tvly-from-store")
+      expect(values).not_to include("tvly-from-env")
+    end
+
+    it "excludes nil and empty values" do
+      values = broker.sensitive_values
+      expect(values).not_to include(nil)
+      expect(values).not_to include("")
+    end
+  end
+
   describe "#configured_secrets" do
     it "returns names of secrets available in store or env" do
       secrets_store.put("tavily_api_key", "tvly-abc123")

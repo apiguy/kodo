@@ -10,6 +10,7 @@ module Kodo
   module Tools
     class FetchUrl < RubyLLM::Tool
       extend PromptContributor
+      include Web::UrlValidator
 
       capability_name 'URL Fetch'
       capability_primary true
@@ -23,19 +24,6 @@ module Kodo
       OPEN_TIMEOUT = 10
       USER_AGENT = "Kodo/#{VERSION} (bot; +https://kodo.bot)".freeze
 
-      # RFC 1918, loopback, link-local
-      BLOCKED_RANGES = [
-        IPAddr.new('10.0.0.0/8'),
-        IPAddr.new('172.16.0.0/12'),
-        IPAddr.new('192.168.0.0/16'),
-        IPAddr.new('127.0.0.0/8'),
-        IPAddr.new('169.254.0.0/16'),
-        IPAddr.new('0.0.0.0/8'),
-        IPAddr.new('::1/128'),
-        IPAddr.new('fc00::/7'),
-        IPAddr.new('fe80::/10')
-      ].freeze
-
       description 'Fetch and read the contents of a web page. Use this to read articles, ' \
                   'documentation, or any publicly accessible URL the user provides.'
 
@@ -43,9 +31,10 @@ module Kodo
 
       attr_writer :turn_context
 
-      def initialize(audit:)
+      def initialize(audit:, sensitive_values_fn: nil)
         super()
         @audit = audit
+        @sensitive_values_fn = sensitive_values_fn
         @turn_count = 0
         @turn_context = nil
       end
@@ -116,54 +105,9 @@ module Kodo
       end
 
       def validate_url(url)
-        uri = URI.parse(url)
-        return 'Error: Only http and https URLs are supported.' unless %w[http https].include?(uri.scheme)
-
-        check_domain_policy!(uri.host)
-        check_ssrf!(uri.host)
-        uri
-      rescue URI::InvalidURIError
-        'Error: Invalid URL format.'
+        validate_url!(url, sensitive_values_fn: @sensitive_values_fn)
       rescue Kodo::Error => e
         "Error: #{e.message}"
-      end
-
-      def check_domain_policy!(hostname)
-        blocklist = Kodo.config.web_fetch_blocklist
-        if blocklist.any? { |pattern| domain_matches?(hostname, pattern) }
-          raise Kodo::Error, "#{hostname} is blocked by fetch_blocklist policy."
-        end
-
-        allowlist = Kodo.config.web_fetch_allowlist
-        return if allowlist.empty?
-
-        return if allowlist.any? { |pattern| domain_matches?(hostname, pattern) }
-
-        raise Kodo::Error, "#{hostname} is not in the fetch_allowlist."
-      end
-
-      def domain_matches?(hostname, pattern)
-        if pattern.start_with?('*.')
-          suffix = pattern[1..] # e.g. ".example.com"
-          hostname == pattern[2..] || hostname.end_with?(suffix)
-        else
-          hostname == pattern
-        end
-      end
-
-      def check_ssrf!(hostname)
-        return if Kodo.config.web_ssrf_bypass_hosts.include?(hostname)
-
-        addresses = Resolv.getaddresses(hostname)
-
-        raise Kodo::Error, "Could not resolve hostname: #{hostname}" if addresses.empty?
-
-        addresses.each do |addr|
-          ip = IPAddr.new(addr)
-          if BLOCKED_RANGES.any? { |range| range.include?(ip) }
-            raise Kodo::Error, 'Access to private/internal network addresses is not allowed.'
-          end
-        end
       end
 
       def fetch_with_redirects(uri, redirects_remaining = MAX_REDIRECTS)

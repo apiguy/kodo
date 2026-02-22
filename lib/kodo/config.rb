@@ -58,7 +58,9 @@ module Kodo
         'audit_urls' => true,
         'fetch_blocklist' => [],
         'fetch_allowlist' => [],
-        'ssrf_bypass_hosts' => []
+        'ssrf_bypass_hosts' => [],
+        'browser_enabled' => false,
+        'browser_timeout' => 30
       }
     }.freeze
 
@@ -223,6 +225,12 @@ module Kodo
     def web_ssrf_bypass_hosts
       data.dig('web', 'ssrf_bypass_hosts') || []
     end
+
+    # --- Browser ---
+    def browser_enabled?  = data.dig('web', 'browser_enabled') == true
+    def browser_timeout   = data.dig('web', 'browser_timeout') || 30
+    def browser_model     = data.dig('web', 'browser_model') || utility_model
+    def browser_path      = data.dig('web', 'browser_path')
 
     def search_provider_instance
       return nil unless search_configured?

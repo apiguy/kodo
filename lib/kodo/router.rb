@@ -13,6 +13,7 @@ module Kodo
       Tools::DismissReminder,
       Tools::WebSearch,
       Tools::FetchUrl,
+      Tools::BrowseWeb,
       Tools::StoreSecret
     ].freeze
 
@@ -130,7 +131,16 @@ module Kodo
       end
 
       # URL fetching (no API key required)
-      tools << Tools::FetchUrl.new(audit: @audit) if Kodo.config.web_fetch_url_enabled?
+      if Kodo.config.web_fetch_url_enabled?
+        sensitive_values_fn = @broker ? -> { @broker.sensitive_values } : nil
+        tools << Tools::FetchUrl.new(audit: @audit, sensitive_values_fn: sensitive_values_fn)
+      end
+
+      # Real browser (requires Node.js + playwright-cli)
+      if Kodo.config.browser_enabled?
+        sensitive_values_fn = @broker ? -> { @broker.sensitive_values } : nil
+        tools << Tools::BrowseWeb.new(audit: @audit, sensitive_values_fn: sensitive_values_fn)
+      end
 
       # Web search (requires search provider API key)
       if @search_provider && Kodo.config.web_search_enabled?

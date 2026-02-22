@@ -83,6 +83,21 @@ module Kodo
         all_names.select { |name| available?(name) }
       end
 
+      # Returns all current secret values (store + env) for exfiltration prevention.
+      # This is a security-internal method — not an LLM-accessible action.
+      def sensitive_values
+        GRANTS.map(&:secret_name).uniq.filter_map do |name|
+          value = @store.get(name)
+          next value if value
+
+          env_var = ENV_FALLBACKS[name]
+          next unless env_var
+
+          v = ENV[env_var]
+          v unless v.nil? || v.empty?
+        end
+      end
+
       private
 
       def authorized?(name, requestor)
