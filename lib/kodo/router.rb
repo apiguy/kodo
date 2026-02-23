@@ -14,11 +14,14 @@ module Kodo
       Tools::WebSearch,
       Tools::FetchUrl,
       Tools::BrowseWeb,
-      Tools::StoreSecret
+      Tools::StoreSecret,
+      Tools::ApproveAction,
+      Tools::SmtpSend,
+      Tools::UpdatePulse
     ].freeze
 
     def initialize(memory:, audit:, prompt_assembler: nil, knowledge: nil, reminders: nil,
-                   search_provider: nil, broker: nil, on_secret_stored: nil)
+                   search_provider: nil, broker: nil, on_secret_stored: nil, rule_store: nil)
       @memory = memory
       @audit = audit
       @prompt_assembler = prompt_assembler || PromptAssembler.new
@@ -27,6 +30,7 @@ module Kodo
       @search_provider = search_provider
       @broker = broker
       @on_secret_stored = on_secret_stored
+      @rule_store = rule_store
       @tools = build_tools
     end
 
@@ -34,6 +38,40 @@ module Kodo
     def reload_tools!(search_provider: nil)
       @search_provider = search_provider if search_provider
       @tools = build_tools
+    end
+
+    # Process a pulse evaluation during an idle heartbeat
+    def route_pulse(message, channel:) # rubocop:disable Metrics
+      turn_context = Web::TurnContext.new
+      set_turn_context(turn_context)
+
+      system_prompt = @prompt_assembler.assemble_pulse(
+        runtime_context: { model: Kodo.config.llm_model, web_nonce: turn_context.nonce },
+        knowledge: @knowledge&.for_prompt
+      )
+
+      chat = LLM.chat
+      chat.with_instructions(system_prompt)
+
+      if @tools.any?
+        reset_tool_rate_limits!
+        chat.with_tools(*@tools)
+      end
+
+      Kodo.logger.debug("Pulse evaluation with #{Kodo.config.llm_model}")
+      response = chat.ask(message.content)
+      response_text = response.content
+
+      @audit.log(event: 'pulse_evaluated', detail: "len:#{response_text&.length || 0}")
+
+      return nil if response_text.nil? || response_text.strip.empty?
+
+      Message.new(
+        channel_id: message.channel_id,
+        sender: :agent,
+        content: response_text,
+        metadata: { chat_id: 'pulse' }
+      )
     end
 
     # Process an incoming message and return a response message
@@ -150,7 +188,36 @@ module Kodo
       # Secret storage tool (requires broker)
       tools << Tools::StoreSecret.new(broker: @broker, audit: @audit, on_secret_stored: @on_secret_stored) if @broker
 
+      # Email tool (requires agent email configuration)
+      tools << Tools::SmtpSend.new(audit: @audit) if Kodo.config.agent_email
+
+      # Pulse management tool (always available)
+      tools << Tools::UpdatePulse.new(audit: @audit)
+
+      # Approval tool (requires rule store + autonomy)
+      if @rule_store && Kodo.config.autonomy_enabled?
+        on_rule_added = -> { reload_tools! }
+        tools << Tools::ApproveAction.new(rule_store: @rule_store, audit: @audit, on_rule_added: on_rule_added)
+      end
+
+      apply_autonomy_gate!(tools) if Kodo.config.autonomy_enabled?
+
       tools
+    end
+
+    def apply_autonomy_gate!(tools)
+      persistent_rules = @rule_store ? @rule_store.active_rules : []
+      policy = Autonomy::Policy.new(
+        config_rules: Kodo.config.autonomy_rules,
+        persistent_rules: persistent_rules,
+        posture: Kodo.config.autonomy_posture
+      )
+      tools.each do |tool|
+        tool.singleton_class.prepend(Autonomy::Gated)
+        tool.autonomy_policy = policy
+        tool.autonomy_audit = @audit
+        tool.autonomy_rule_store = @rule_store
+      end
     end
 
     def reset_tool_rate_limits!

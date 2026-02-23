@@ -30,4 +30,7 @@ Gem::Specification.new do |spec|
 
   # LLM
   spec.add_dependency "ruby_llm", "~> 1.2"
+
+  # Email (extracted stdlib gem)
+  spec.add_dependency "net-smtp", ">= 0.3"
 end

@@ -151,7 +151,8 @@ RSpec.describe Kodo::Router, :tmpdir do
         an_instance_of(Kodo::Tools::ForgetFact),
         an_instance_of(Kodo::Tools::RecallFacts),
         an_instance_of(Kodo::Tools::UpdateFact),
-        an_instance_of(Kodo::Tools::FetchUrl)
+        an_instance_of(Kodo::Tools::FetchUrl),
+        an_instance_of(Kodo::Tools::UpdatePulse)
       )
     end
 
@@ -174,12 +175,13 @@ RSpec.describe Kodo::Router, :tmpdir do
       expect(response.content).to eq("Ruby is a programming language.")
     end
 
-    it "registers GetCurrentTime and FetchUrl tools" do
+    it "registers GetCurrentTime, FetchUrl, and UpdatePulse tools" do
       router.route(incoming_message, channel: channel)
 
       expect(mock_chat).to have_received(:with_tools).with(
         an_instance_of(Kodo::Tools::GetCurrentTime),
-        an_instance_of(Kodo::Tools::FetchUrl)
+        an_instance_of(Kodo::Tools::FetchUrl),
+        an_instance_of(Kodo::Tools::UpdatePulse)
       )
     end
   end
@@ -201,7 +203,7 @@ RSpec.describe Kodo::Router, :tmpdir do
       )
     end
 
-    it "registers fetch_url and web_search tools" do
+    it "registers fetch_url, web_search, and update_pulse tools" do
       router.route(incoming_message, channel: channel)
 
       expect(mock_chat).to have_received(:with_tools).with(
@@ -211,7 +213,8 @@ RSpec.describe Kodo::Router, :tmpdir do
         an_instance_of(Kodo::Tools::RecallFacts),
         an_instance_of(Kodo::Tools::UpdateFact),
         an_instance_of(Kodo::Tools::FetchUrl),
-        an_instance_of(Kodo::Tools::WebSearch)
+        an_instance_of(Kodo::Tools::WebSearch),
+        an_instance_of(Kodo::Tools::UpdatePulse)
       )
     end
   end
@@ -240,7 +243,8 @@ RSpec.describe Kodo::Router, :tmpdir do
         an_instance_of(Kodo::Tools::SetReminder),
         an_instance_of(Kodo::Tools::ListReminders),
         an_instance_of(Kodo::Tools::DismissReminder),
-        an_instance_of(Kodo::Tools::FetchUrl)
+        an_instance_of(Kodo::Tools::FetchUrl),
+        an_instance_of(Kodo::Tools::UpdatePulse)
       )
     end
 
@@ -275,7 +279,8 @@ RSpec.describe Kodo::Router, :tmpdir do
         an_instance_of(Kodo::Tools::RecallFacts),
         an_instance_of(Kodo::Tools::UpdateFact),
         an_instance_of(Kodo::Tools::FetchUrl),
-        an_instance_of(Kodo::Tools::StoreSecret)
+        an_instance_of(Kodo::Tools::StoreSecret),
+        an_instance_of(Kodo::Tools::UpdatePulse)
       )
     end
 
@@ -331,7 +336,8 @@ RSpec.describe Kodo::Router, :tmpdir do
         an_instance_of(Kodo::Tools::UpdateFact),
         an_instance_of(Kodo::Tools::FetchUrl),
         an_instance_of(Kodo::Tools::WebSearch),
-        an_instance_of(Kodo::Tools::StoreSecret)
+        an_instance_of(Kodo::Tools::StoreSecret),
+        an_instance_of(Kodo::Tools::UpdatePulse)
       )
     end
   end
@@ -427,6 +433,48 @@ RSpec.describe Kodo::Router, :tmpdir do
     end
   end
 
+  describe "#route_pulse" do
+    let(:pulse_message) do
+      Kodo::Message.new(
+        channel_id: "console",
+        sender: :system,
+        content: "Pulse check.",
+        metadata: { chat_id: "pulse", pulse: true }
+      )
+    end
+
+    it "returns a response message" do
+      response = router.route_pulse(pulse_message, channel: channel)
+
+      expect(response).to be_a(Kodo::Message)
+      expect(response.sender).to eq(:agent)
+      expect(response.content).to eq("Ruby is a programming language.")
+    end
+
+    it "uses assemble_pulse for the system prompt" do
+      router.route_pulse(pulse_message, channel: channel)
+
+      # assemble_pulse includes invariants but NOT persona/user sections
+      expect(mock_chat).to have_received(:with_instructions).with(
+        a_string_including("Security Invariants")
+      )
+    end
+
+    it "returns nil when LLM response is empty" do
+      allow(mock_response).to receive(:content).and_return("  ")
+      response = router.route_pulse(pulse_message, channel: channel)
+
+      expect(response).to be_nil
+    end
+
+    it "logs pulse_evaluated audit event" do
+      router.route_pulse(pulse_message, channel: channel)
+
+      events = audit.today.map { |e| e["event"] }
+      expect(events).to include("pulse_evaluated")
+    end
+  end
+
   describe "#reload_tools!" do
     let(:search_provider) { instance_double(Kodo::Search::Tavily) }
 
@@ -441,7 +489,8 @@ RSpec.describe Kodo::Router, :tmpdir do
         an_instance_of(Kodo::Tools::RecallFacts),
         an_instance_of(Kodo::Tools::UpdateFact),
         an_instance_of(Kodo::Tools::FetchUrl),
-        an_instance_of(Kodo::Tools::WebSearch)
+        an_instance_of(Kodo::Tools::WebSearch),
+        an_instance_of(Kodo::Tools::UpdatePulse)
       )
     end
   end

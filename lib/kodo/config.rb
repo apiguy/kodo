@@ -61,6 +61,16 @@ module Kodo
         'ssrf_bypass_hosts' => [],
         'browser_enabled' => false,
         'browser_timeout' => 30
+      },
+      'autonomy' => {
+        'enabled' => false,
+        'posture' => 'balanced',
+        'rules' => []
+      },
+      'agent' => {
+        'name' => 'Kodo',
+        'email' => nil,
+        'email_provider' => nil
       }
     }.freeze
 
@@ -89,6 +99,7 @@ module Kodo
           File.join(Kodo.home_dir, 'memory', 'knowledge'),
           File.join(Kodo.home_dir, 'memory', 'reminders'),
           File.join(Kodo.home_dir, 'memory', 'audit'),
+          File.join(Kodo.home_dir, 'memory', 'autonomy'),
           File.join(Kodo.home_dir, 'skills')
         ]
         dirs.each { |d| FileUtils.mkdir_p(d) }
@@ -231,6 +242,32 @@ module Kodo
     def browser_timeout   = data.dig('web', 'browser_timeout') || 30
     def browser_model     = data.dig('web', 'browser_model') || utility_model
     def browser_path      = data.dig('web', 'browser_path')
+
+    # --- Autonomy ---
+    def autonomy_enabled? = data.dig('autonomy', 'enabled') == true
+    def autonomy_posture  = (data.dig('autonomy', 'posture') || 'balanced').to_sym
+
+    def autonomy_rules
+      raw = data.dig('autonomy', 'rules') || []
+      raw.filter_map do |entry|
+        next unless entry.is_a?(Hash) && entry['action']
+
+        Autonomy::Rule.new(
+          action: entry['action'].to_sym,
+          scope: (entry['scope'] || {}).transform_keys(&:to_sym),
+          level: (entry['level'] || 'propose').to_sym,
+          reason: entry['reason'] || 'Configured in config.yml'
+        )
+      end
+    end
+
+    # --- Agent Identity ---
+    def agent_name     = data.dig('agent', 'name') || 'Kodo'
+    def agent_email    = data.dig('agent', 'email')
+    def email_provider = data.dig('agent', 'email_provider')
+
+    # --- Daemon (extended) ---
+    def pulse_interval = data.dig('daemon', 'pulse_interval') || 3600
 
     def search_provider_instance
       return nil unless search_configured?

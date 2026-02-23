@@ -86,6 +86,21 @@ RSpec.describe Kodo::Secrets::Store, :tmpdir do
     end
   end
 
+  describe "#metadata" do
+    it "returns source, validated, and stored_at for a secret" do
+      store.put("tavily_api_key", "tvly-abc123", source: "chat", validated: true)
+      meta = store.metadata("tavily_api_key")
+
+      expect(meta[:source]).to eq("chat")
+      expect(meta[:validated]).to be true
+      expect(meta[:stored_at]).not_to be_nil
+    end
+
+    it "returns nil for a missing secret" do
+      expect(store.metadata("nonexistent")).to be_nil
+    end
+  end
+
   describe "missing file" do
     it "starts with empty secrets when file does not exist" do
       fresh = described_class.new(passphrase: passphrase, secrets_dir: tmpdir)

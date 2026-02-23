@@ -8,6 +8,8 @@ module Kodo
     COMMANDS = {
       'start' => 'Start the Kodo daemon',
       'chat' => 'Chat with Kodo directly in the terminal',
+      'enable' => 'Enable a feature (browser, search, autonomy, telegram, encryption)',
+      'disable' => 'Disable a feature',
       'memories' => 'List what Kodo remembers about you',
       'reminders' => 'List active reminders',
       'status' => 'Show daemon status',
@@ -22,6 +24,8 @@ module Kodo
       case command
       when 'start'     then start(args)
       when 'chat'      then chat
+      when 'enable'    then enable_feature(args)
+      when 'disable'   then disable_feature(args)
       when 'memories'  then memories
       when 'reminders' then reminders
       when 'init'      then init
@@ -46,6 +50,20 @@ module Kodo
       daemon.start!
     end
 
+    def enable_feature(args)
+      Config.ensure_home_dir!
+      toggle = FeatureToggle.new
+      feature = args[1]
+      feature ? toggle.enable(feature) : toggle.list
+    end
+
+    def disable_feature(args)
+      Config.ensure_home_dir!
+      toggle = FeatureToggle.new
+      feature = args[1]
+      feature ? toggle.disable(feature) : toggle.list
+    end
+
     def chat # rubocop:disable Metrics/MethodLength
       Config.ensure_home_dir!
       assembler = PromptAssembler.new
@@ -60,6 +78,7 @@ module Kodo
 
       secrets_store = Secrets::Store.new(passphrase: Kodo.config.secrets_passphrase)
       broker = Secrets::Broker.new(store: secrets_store, audit: audit)
+      rule_store = Kodo.config.autonomy_enabled? ? Autonomy::RuleStore.new(passphrase: passphrase) : nil
       search_provider = resolve_chat_search_provider(broker)
 
       LLM.configure!(Kodo.config, broker: broker)
@@ -84,7 +103,8 @@ module Kodo
         reminders: reminder_store,
         search_provider: search_provider,
         broker: broker,
-        on_secret_stored: on_secret_stored
+        on_secret_stored: on_secret_stored,
+        rule_store: rule_store
       )
       console = Channels::Console.new
       console.connect!
@@ -183,7 +203,7 @@ module Kodo
       puts '   OpenRouter, Perplexity, xAI, and any OpenAI-compatible API'
     end
 
-    def status
+    def status # rubocop:disable Metrics
       puts "🥁 Kodo v#{VERSION}"
       puts ''
       puts "   Home:   #{Kodo.home_dir}"
@@ -194,8 +214,8 @@ module Kodo
       puts '   Prompt files:'
       %w[persona.md user.md pulse.md origin.md].each do |f|
         path = File.join(Kodo.home_dir, f)
-        status = File.exist?(path) ? '✅' : '  '
-        puts "   #{status} #{f}"
+        s = File.exist?(path) ? '✅' : '  '
+        puts "   #{s} #{f}"
       end
       puts ''
 
@@ -213,6 +233,53 @@ module Kodo
       puts ''
 
       puts "   Telegram: #{ENV['TELEGRAM_BOT_TOKEN'] ? '✅ set' : '❌ TELEGRAM_BOT_TOKEN missing'}"
+      puts ''
+
+      # Secrets (via broker if available)
+      show_secrets_status
+      show_autonomy_status
+    end
+
+    def show_secrets_status
+      Config.ensure_home_dir!
+      secrets_store = Secrets::Store.new(passphrase: Kodo.config.secrets_passphrase)
+      audit = Memory::Audit.new
+      broker = Secrets::Broker.new(store: secrets_store, audit: audit)
+
+      summary = broker.credential_summary
+      return if summary.empty?
+
+      puts '   Secrets:'
+      summary.each do |cred|
+        validated = cred[:validated] ? 'validated' : 'unvalidated'
+        stored_at = cred[:stored_at] ? "  (#{cred[:stored_at][0..9]})" : ''
+        puts "   #{cred[:name].ljust(25)} #{cred[:source].ljust(8)} #{validated}#{stored_at}"
+      end
+      puts ''
+    rescue StandardError
+      nil
+    end
+
+    def show_autonomy_status
+      return unless Kodo.config.autonomy_enabled?
+
+      puts "   Autonomy: enabled (posture: #{Kodo.config.autonomy_posture})"
+
+      rules_path = File.join(Kodo.home_dir, 'memory', 'autonomy', 'rules.jsonl')
+      return unless File.exist?(rules_path)
+
+      store = Autonomy::RuleStore.new
+      rules = store.active_rules
+      return if rules.empty?
+
+      puts '   Autonomy rules:'
+      rules.each do |rule|
+        scope_str = rule.scope.empty? ? '' : " (#{rule.scope.map { |k, v| "#{k}:#{v}" }.join(', ')})"
+        puts "   #{rule.action}#{scope_str} → #{rule.level}  (#{rule.granted_via || 'builtin'})"
+      end
+      puts ''
+    rescue StandardError
+      nil
     end
 
     def resolve_chat_search_provider(broker)

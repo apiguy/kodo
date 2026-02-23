@@ -43,6 +43,17 @@ module Kodo
         @secrets.keys
       end
 
+      def metadata(name)
+        entry = @secrets[name]
+        return nil unless entry
+
+        {
+          source: entry['source'],
+          validated: entry['validated'],
+          stored_at: entry['stored_at']
+        }
+      end
+
       private
 
       def secrets_path

@@ -83,6 +83,19 @@ module Kodo
         all_names.select { |name| available?(name) }
       end
 
+      def credential_summary
+        GRANTS.map(&:secret_name).uniq.filter_map do |name|
+          next unless available?(name)
+
+          meta = @store.metadata(name)
+          source = meta ? meta[:source] : 'env'
+          validated = meta ? meta[:validated] : false
+          stored_at = meta ? meta[:stored_at] : nil
+
+          { name: name, source: source, validated: validated, stored_at: stored_at }
+        end
+      end
+
       # Returns all current secret values (store + env) for exfiltration prevention.
       # This is a security-internal method — not an LLM-accessible action.
       def sensitive_values

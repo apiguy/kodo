@@ -2,6 +2,7 @@
 daemon:
   port: 7377
   heartbeat_interval: 60
+  pulse_interval: 3600       # seconds between idle pulse evaluations (default: 1 hour)
 
 llm:
   # Any model supported by your configured providers
@@ -68,3 +69,22 @@ web:
   browser_timeout: 30     # seconds per browser action
   # browser_model: claude-haiku-4-5-20251001  # defaults to utility_model
   # browser_path: /usr/bin/chromium            # optional, auto-detected from PATH
+
+# Autonomy — risk-classified action gating
+# When enabled, every tool call is checked against a policy before execution.
+# Levels: free (execute), notify (execute + log), propose (ask user first), never (refuse)
+autonomy:
+  enabled: false         # set true to enable autonomy gating
+  posture: balanced      # balanced | conservative | autonomous
+  # rules:               # custom rules override built-in defaults
+  #   - action: fetch_url
+  #     scope:
+  #       url: "*.example.com"
+  #     level: free
+  #     reason: "Trusted internal domain"
+
+# Agent identity — gives Kodo its own email and credentials
+# agent:
+#   name: Kodo
+#   email: kodo@yourdomain.com
+#   email_provider: smtp  # smtp, zoho, or gmail

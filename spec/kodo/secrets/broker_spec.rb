@@ -147,6 +147,35 @@ RSpec.describe Kodo::Secrets::Broker, :tmpdir do
     end
   end
 
+  describe "#credential_summary" do
+    it "returns summary of available credentials with metadata" do
+      secrets_store.put("tavily_api_key", "tvly-abc123", source: "chat", validated: true)
+
+      summary = broker.credential_summary
+      cred = summary.find { |c| c[:name] == "tavily_api_key" }
+
+      expect(cred).not_to be_nil
+      expect(cred[:source]).to eq("chat")
+      expect(cred[:validated]).to be true
+      expect(cred[:stored_at]).not_to be_nil
+    end
+
+    it "includes env-only credentials with 'env' source" do
+      allow(ENV).to receive(:[]).and_call_original
+      allow(ENV).to receive(:[]).with("ANTHROPIC_API_KEY").and_return("sk-ant-test")
+
+      summary = broker.credential_summary
+      cred = summary.find { |c| c[:name] == "anthropic_api_key" }
+
+      expect(cred).not_to be_nil
+      expect(cred[:source]).to eq("env")
+    end
+
+    it "returns empty array when no credentials available" do
+      expect(broker.credential_summary).to eq([])
+    end
+  end
+
   describe "#configured_secrets" do
     it "returns names of secrets available in store or env" do
       secrets_store.put("tavily_api_key", "tvly-abc123")

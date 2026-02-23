@@ -16,6 +16,7 @@ module Kodo
       @prompt_assembler = PromptAssembler.new
       @search_provider = resolve_search_provider
       @broker = build_broker
+      @rule_store = build_rule_store
       @router = Router.new(
         memory: @memory,
         audit: @audit,
@@ -24,7 +25,8 @@ module Kodo
         reminders: @reminders,
         search_provider: @search_provider,
         broker: @broker,
-        on_secret_stored: method(:on_secret_stored)
+        on_secret_stored: method(:on_secret_stored),
+        rule_store: @rule_store
       )
       @channels = []
     end
@@ -52,6 +54,11 @@ module Kodo
       Kodo.logger.info("   Knowledge facts: #{@knowledge.count}")
       Kodo.logger.info("   Active reminders: #{@reminders.active_count}")
 
+      if @config.autonomy_enabled?
+        rule_count = @rule_store&.active_rules&.length || 0
+        Kodo.logger.info("   Autonomy: enabled (posture: #{@config.autonomy_posture}, #{rule_count} persistent rules)")
+      end
+
       start_heartbeat!
     end
 
@@ -69,10 +76,31 @@ module Kodo
       Secrets::Broker.new(store: secrets_store, audit: @audit)
     end
 
+    def build_rule_store
+      return nil unless @config.autonomy_enabled?
+
+      passphrase = @config.memory_encryption? ? resolve_passphrase : nil
+      Autonomy::RuleStore.new(passphrase: passphrase)
+    end
+
+    def reload!
+      Kodo.reload_config!
+      @config = Kodo.config
+      LLM.configure!(@config, broker: @broker)
+      rebuild_search_provider!
+      @router.reload_tools!(search_provider: @search_provider)
+      reconcile_channels!
+      @audit.log(event: 'config_reloaded')
+      Kodo.logger.info('Config reloaded')
+    rescue StandardError => e
+      Kodo.logger.error("Config reload failed: #{e.message}")
+    end
+
     def on_secret_stored(_secret_name)
       rebuild_search_provider!
       @router.reload_tools!(search_provider: @search_provider)
       LLM.configure!(config, broker: @broker)
+      reconcile_channels!
     end
 
     def rebuild_search_provider!
@@ -82,6 +110,36 @@ module Kodo
       @search_provider = Search::Tavily.new(api_key: api_key) if api_key
     rescue Kodo::Error => e
       Kodo.logger.warn("Failed to rebuild search provider: #{e.message}")
+    end
+
+    def reconcile_channels!
+      existing = @channels.find { |c| c.channel_id == 'telegram' }
+
+      if Kodo.config.telegram_enabled? && !existing
+        token = resolve_telegram_token
+        return unless token
+
+        telegram = Channels::Telegram.new(bot_token: token)
+        telegram.connect!
+        @channels << telegram
+        Kodo.logger.info('Telegram channel connected')
+      elsif !Kodo.config.telegram_enabled? && existing
+        existing.disconnect!
+        @channels.delete(existing)
+        Kodo.logger.info('Telegram channel disconnected')
+      end
+    rescue StandardError => e
+      Kodo.logger.error("Channel reconciliation failed: #{e.message}")
+    end
+
+    def resolve_telegram_token
+      if @broker.available?('telegram_bot_token')
+        @broker.fetch('telegram_bot_token', requestor: 'telegram')
+      else
+        Kodo.config.telegram_bot_token
+      end
+    rescue Kodo::Error
+      nil
     end
 
     def resolve_search_provider
@@ -124,11 +182,13 @@ module Kodo
         router: @router,
         audit: @audit,
         reminders: @reminders,
-        interval: @heartbeat_interval
+        interval: @heartbeat_interval,
+        on_reload: method(:reload!)
       )
 
       trap('INT') { stop! }
       trap('TERM') { stop! }
+      trap('HUP') { @heartbeat.request_reload! }
 
       @heartbeat.start!
     end
