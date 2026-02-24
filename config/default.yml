@@ -13,6 +13,11 @@ llm:
   # Falls back to the main model if not set.
   # utility_model: claude-haiku-4-5-20251001
 
+  # Optional: model for pulse evaluations (idle heartbeat checks).
+  # Falls back to utility_model. Using a cheap model here avoids competing
+  # with user chat for rate limits on the primary model.
+  # pulse_model: claude-haiku-4-5-20251001
+
   # Add API keys for any providers you want to use.
   # Only configure the ones you need — Kodo won't complain about the rest.
   providers:

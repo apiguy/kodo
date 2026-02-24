@@ -129,6 +129,7 @@ module Kodo
     # --- LLM ---
     def llm_model = data.dig('llm', 'model')
     def utility_model = data.dig('llm', 'utility_model') || llm_model
+    def pulse_model = data.dig('llm', 'pulse_model') || utility_model
 
     # Returns a hash of { "provider_name" => "actual_api_key" } for all configured providers
     def llm_api_keys

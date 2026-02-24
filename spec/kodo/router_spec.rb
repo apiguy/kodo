@@ -36,7 +36,10 @@ RSpec.describe Kodo::Router, :tmpdir do
   end
 
   # Stub the LLM to avoid real API calls
-  let(:mock_response) { double("Response", content: "Ruby is a programming language.") }
+  let(:mock_response) do
+    double("Response", content: "Ruby is a programming language.",
+           input_tokens: 100, output_tokens: 50, cached_tokens: 10, model_id: "claude-sonnet-4-6")
+  end
   let(:mock_chat) do
     instance_double(RubyLLM::Chat).tap do |chat|
       allow(chat).to receive(:with_instructions)
@@ -85,6 +88,18 @@ RSpec.describe Kodo::Router, :tmpdir do
       events = audit.today.map { |e| e["event"] }
       expect(events).to include("message_received")
       expect(events).to include("message_sent")
+    end
+
+    it "logs token usage to audit after routing" do
+      router.route(incoming_message, channel: channel)
+
+      entries = audit.today
+      token_entry = entries.find { |e| e["event"] == "token_usage" }
+      expect(token_entry).not_to be_nil
+      expect(token_entry["detail"]).to include("in:100")
+      expect(token_entry["detail"]).to include("out:50")
+      expect(token_entry["detail"]).to include("cached:10")
+      expect(token_entry["detail"]).to include("model:claude-sonnet-4-6")
     end
 
     it "passes conversation history to the LLM" do
@@ -472,6 +487,23 @@ RSpec.describe Kodo::Router, :tmpdir do
 
       events = audit.today.map { |e| e["event"] }
       expect(events).to include("pulse_evaluated")
+    end
+
+    it "uses pulse_model for LLM.chat" do
+      router.route_pulse(pulse_message, channel: channel)
+
+      expect(Kodo::LLM).to have_received(:chat).with(model: "claude-haiku-4-5-20251001")
+    end
+
+    it "logs token usage to audit" do
+      router.route_pulse(pulse_message, channel: channel)
+
+      entries = audit.today
+      token_entry = entries.find { |e| e["event"] == "pulse_tokens" }
+      expect(token_entry).not_to be_nil
+      expect(token_entry["detail"]).to include("in:100")
+      expect(token_entry["detail"]).to include("out:50")
+      expect(token_entry["detail"]).to include("cached:10")
     end
   end
 

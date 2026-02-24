@@ -58,6 +58,19 @@ RSpec.describe Kodo::Config, :tmpdir do
       expect(config.utility_model).to eq("claude-haiku-4-5-20251001")
     end
 
+    it "#pulse_model falls back to utility_model by default" do
+      expect(default_config.pulse_model).to eq(default_config.utility_model)
+    end
+
+    it "#pulse_model returns explicit pulse_model when configured" do
+      config = described_class.new(
+        described_class::DEFAULTS.merge(
+          "llm" => described_class::DEFAULTS["llm"].merge("pulse_model" => "gpt-4o-mini")
+        )
+      )
+      expect(config.pulse_model).to eq("gpt-4o-mini")
+    end
+
     it "#log_level returns symbol" do
       expect(default_config.log_level).to eq(:info)
     end

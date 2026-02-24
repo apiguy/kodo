@@ -46,11 +46,11 @@ module Kodo
       set_turn_context(turn_context)
 
       system_prompt = @prompt_assembler.assemble_pulse(
-        runtime_context: { model: Kodo.config.llm_model, web_nonce: turn_context.nonce },
+        runtime_context: { model: Kodo.config.pulse_model, web_nonce: turn_context.nonce },
         knowledge: @knowledge&.for_prompt
       )
 
-      chat = LLM.chat
+      chat = LLM.chat(model: Kodo.config.pulse_model)
       chat.with_instructions(system_prompt)
 
       if @tools.any?
@@ -58,10 +58,11 @@ module Kodo
         chat.with_tools(*@tools)
       end
 
-      Kodo.logger.debug("Pulse evaluation with #{Kodo.config.llm_model}")
+      Kodo.logger.debug("Pulse evaluation with #{Kodo.config.pulse_model}")
       response = chat.ask(message.content)
       response_text = response.content
 
+      log_token_usage(response, event: 'pulse_tokens', channel: message.channel_id)
       @audit.log(event: 'pulse_evaluated', detail: "len:#{response_text&.length || 0}")
 
       return nil if response_text.nil? || response_text.strip.empty?
@@ -126,6 +127,7 @@ module Kodo
       response = chat.ask(message.content)
       response_text = response.content
 
+      log_token_usage(response, event: 'token_usage', channel: message.channel_id)
       @memory.append(chat_id, role: 'assistant', content: response_text)
 
       @audit.log(
@@ -270,6 +272,17 @@ module Kodo
       @tools.each do |tool|
         tool.turn_context = turn_context if tool.respond_to?(:turn_context=)
       end
+    end
+
+    def log_token_usage(response, event:, channel:)
+      input = response.input_tokens || 0
+      output = response.output_tokens || 0
+      cached = response.cached_tokens || 0
+      model = response.model_id || 'unknown'
+
+      detail = "in:#{input} out:#{output} cached:#{cached} model:#{model}"
+      Kodo.logger.debug("Token usage [#{event}]: #{detail}")
+      @audit.log(event: event, channel: channel, detail: detail)
     end
   end
 end

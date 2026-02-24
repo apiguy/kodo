@@ -121,8 +121,18 @@ module Kodo
           metadata: { chat_id: 'console' }
         )
 
-        response = with_spinner { router.route(message, channel: console) }
-        console.send_message(response)
+        begin
+          response = with_spinner { router.route(message, channel: console) }
+          console.send_message(response)
+        rescue RubyLLM::RateLimitError => e
+          puts "\n\e[31mRate limited by the LLM provider. Wait a moment and try again.\e[0m"
+          puts "  Detail: #{e.message}"
+        rescue RubyLLM::Error => e
+          puts "\n\e[31mLLM error: #{e.message}\e[0m"
+        rescue StandardError => e
+          puts "\n\e[31mError: #{e.class}: #{e.message}\e[0m"
+          Kodo.logger.error("CLI chat error: #{e.class}: #{e.message}")
+        end
       end
     rescue Interrupt
       puts "\n\n🥁 Goodbye."
